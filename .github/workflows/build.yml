@@ -25,6 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libasound2-dev
+          sudo ln -s /usr/bin/ld.lld /usr/bin/ld64.lld
 
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
