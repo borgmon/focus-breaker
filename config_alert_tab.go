@@ -1,0 +1,191 @@
+package main
+
+import (
+	"sort"
+	"strconv"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+)
+
+func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
+	// Create Snooze Duration select with 1-min increments (1-15)
+	snoozeOptions := []string{"0 min (disabled)", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "11 min", "12 min", "13 min", "14 min", "15 min"}
+	cw.snoozeTimeSelect = widget.NewSelect(snoozeOptions, func(value string) {
+		cw.markChanged()
+	})
+	currentSnooze := cw.config.SnoozeTime
+	if currentSnooze == 0 {
+		cw.snoozeTimeSelect.SetSelected("0 min (disabled)")
+	} else {
+		cw.snoozeTimeSelect.SetSelected(strconv.Itoa(currentSnooze) + " min")
+	}
+
+	cw.notifyUnacceptedCheck = widget.NewCheck("Notify for Unaccepted Events", func(checked bool) {
+		cw.markChanged()
+	})
+	cw.notifyUnacceptedCheck.SetChecked(cw.config.NotifyUnaccepted)
+
+	// Initialize alert before data from config
+	cw.alertBeforeData = []string{}
+	if cw.config.AlertBeforeMin != "" {
+		alertValues := cw.config.GetAlertMinutes()
+		for _, val := range alertValues {
+			if val > 0 { // Skip 0 since it's always included
+				cw.alertBeforeData = append(cw.alertBeforeData, strconv.Itoa(val))
+			}
+		}
+	}
+
+	// Track selected item index
+	var selectedIndex int = -1
+
+	// Create alert before list
+	cw.alertBeforeList = widget.NewList(
+		func() int {
+			return len(cw.alertBeforeData)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			o.(*widget.Label).SetText(cw.alertBeforeData[i] + " min")
+		})
+
+	cw.alertBeforeList.OnSelected = func(id widget.ListItemID) {
+		selectedIndex = id
+	}
+
+	// Create entry for adding new alert times
+	newAlertEntry := widget.NewEntry()
+	newAlertEntry.SetPlaceHolder("Enter minutes (e.g., 5)")
+
+	// Plus button to add new alert time
+	plusButton := widget.NewButton("", func() {
+		if newAlertEntry.Text == "" {
+			dialog.ShowInformation("Invalid Input",
+				"Please enter a number of minutes.",
+				cw.window)
+			return
+		}
+
+		// Validate that input is a valid positive integer
+		val, err := strconv.Atoi(newAlertEntry.Text)
+		if err != nil || val <= 0 {
+			dialog.ShowInformation("Invalid Input",
+				"Please enter a positive number (e.g., 5, 10, 15).",
+				cw.window)
+			newAlertEntry.SetText("")
+			return
+		}
+
+		// Warn for very large values
+		if val > 1440 {
+			dialog.ShowInformation("Large Value",
+				"Are you sure you want to set an alert more than 24 hours (1440 minutes) before?",
+				cw.window)
+		}
+
+		// Check for duplicates
+		inputStr := newAlertEntry.Text
+		for _, existing := range cw.alertBeforeData {
+			if existing == inputStr {
+				dialog.ShowInformation("Duplicate Alert",
+					"This alert time has already been added.",
+					cw.window)
+				newAlertEntry.SetText("")
+				return
+			}
+		}
+
+		// Add the new value
+		cw.alertBeforeData = append(cw.alertBeforeData, inputStr)
+
+		// Sort the data numerically
+		sort.Slice(cw.alertBeforeData, func(i, j int) bool {
+			vi, _ := strconv.Atoi(cw.alertBeforeData[i])
+			vj, _ := strconv.Atoi(cw.alertBeforeData[j])
+			return vi < vj
+		})
+
+		cw.alertBeforeList.Refresh()
+		newAlertEntry.SetText("")
+		cw.markChanged()
+	})
+	plusButton.Icon = theme.ContentAddIcon()
+
+	// Minus button to remove selected alert time
+	minusButton := widget.NewButton("", func() {
+		if selectedIndex >= 0 && selectedIndex < len(cw.alertBeforeData) {
+			// Remove selected item
+			cw.alertBeforeData = append(cw.alertBeforeData[:selectedIndex], cw.alertBeforeData[selectedIndex+1:]...)
+			cw.alertBeforeList.UnselectAll()
+			selectedIndex = -1
+			cw.alertBeforeList.Refresh()
+			cw.markChanged()
+		}
+	})
+	minusButton.Icon = theme.ContentRemoveIcon()
+
+	addControls := container.NewBorder(nil, nil, nil, container.NewHBox(plusButton, minusButton), newAlertEntry)
+
+	// Wrap list in a scroll container with minimum height
+	listScroll := container.NewScroll(cw.alertBeforeList)
+	listScroll.SetMinSize(fyne.NewSize(0, 150))
+
+	// Use a bordered container with padding to create a visible boundary
+	listWithBorder := container.NewBorder(
+		widget.NewSeparator(), // top
+		widget.NewSeparator(), // bottom
+		widget.NewSeparator(), // left
+		widget.NewSeparator(), // right
+		listScroll,
+	)
+
+	// Create the alert container with list on top and controls on bottom in a VBox
+	alertBeforeContainer := container.NewVBox(listWithBorder, addControls)
+	cw.alertBeforeContainer = alertBeforeContainer
+
+	// Create labels with help text (in gray)
+	alertBeforeLabel := widget.NewLabel("Alert Before:")
+	alertBeforeHelp := widget.NewLabel("Always alerts at event start (0 min). Add additional early alerts here.")
+	alertBeforeHelp.Wrapping = fyne.TextWrapWord
+	alertBeforeHelp.Importance = widget.MediumImportance
+
+	snoozeLabel := widget.NewLabel("Snooze Duration:")
+	snoozeHelp := widget.NewLabel("Set to 0 to disable snooze functionality")
+	snoozeHelp.Importance = widget.MediumImportance
+
+	notifyLabel := widget.NewLabel("Notify Unaccepted:")
+	notifyHelp := widget.NewLabel("If unchecked, only shows alerts for events you've accepted")
+	notifyHelp.Wrapping = fyne.TextWrapWord
+	notifyHelp.Importance = widget.MediumImportance
+
+	// Wrap snooze select and checkbox to control their height
+	snoozeContainer := container.NewVBox(cw.snoozeTimeSelect)
+	notifyContainer := container.NewVBox(cw.notifyUnacceptedCheck)
+
+	// Use FormLayout for proper label-value alignment
+	form := container.New(layout.NewFormLayout(),
+		container.NewVBox(alertBeforeLabel, alertBeforeHelp),
+		alertBeforeContainer,
+
+		container.NewVBox(snoozeLabel, snoozeHelp),
+		snoozeContainer,
+
+		container.NewVBox(notifyLabel, notifyHelp),
+		notifyContainer,
+	)
+
+	content := container.NewVBox(
+		widget.NewLabel("Alert Settings"),
+		widget.NewSeparator(),
+		form,
+	)
+
+	return container.NewPadded(container.NewVScroll(content))
+}
