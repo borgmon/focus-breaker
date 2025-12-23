@@ -91,34 +91,56 @@ func (fb *FocusBreaker) showConfigWindow() {
 }
 
 func (fb *FocusBreaker) syncEvents() {
+	log.Println("=== Starting sync process ===")
+
 	if len(fb.config.ICalSources) == 0 {
 		log.Println("No iCal sources configured")
 		return
 	}
 
+	log.Printf("Found %d iCal source(s) to sync", len(fb.config.ICalSources))
+
 	// Collect events from all iCal sources
 	allEvents := []Event{}
-	for _, source := range fb.config.ICalSources {
+	successfulSources := 0
+	failedSources := 0
+
+	for i, source := range fb.config.ICalSources {
+		log.Printf("Processing source %d/%d: '%s'", i+1, len(fb.config.ICalSources), source.Name)
+
 		if !source.Validate() {
+			log.Printf("Skipping invalid source '%s' (missing name or URL)", source.Name)
+			failedSources++
 			continue
 		}
 
+		log.Printf("Fetching events from '%s' (%s)", source.Name, source.URL)
 		events, err := source.FetchEvents()
 		if err != nil {
 			log.Printf("Error fetching iCal source '%s' (%s): %v", source.Name, source.URL, err)
+			failedSources++
 			continue
 		}
 
 		allEvents = append(allEvents, events...)
-		log.Printf("Synced %d events from '%s'", len(events), source.Name)
+		successfulSources++
+		log.Printf("Successfully synced %d events from '%s'", len(events), source.Name)
 	}
 
+	log.Printf("Sync completed: %d successful, %d failed out of %d total sources",
+		successfulSources, failedSources, len(fb.config.ICalSources))
+
 	alertMinutes := fb.config.GetAlertMinutes()
+	log.Printf("Updating alert store with %d total events (alert offset: %d minutes)",
+		len(allEvents), alertMinutes)
+
 	fb.alertStore.UpdateEvents(allEvents, alertMinutes)
-	log.Printf("Total synced %d events from %d iCal sources", len(allEvents), len(fb.config.ICalSources))
+	log.Printf("Alert store updated successfully")
 
 	// Update system tray menu with new events
+	log.Println("Updating system tray menu")
 	fb.updateSystemTrayMenu()
+	log.Println("=== Sync process completed ===")
 }
 
 func (fb *FocusBreaker) startBackgroundSync() {

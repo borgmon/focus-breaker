@@ -144,10 +144,9 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 	var mainContent fyne.CanvasObject
 	if len(cw.schedulesData) == 0 {
 		emptyStateText := widget.NewLabel("No scheduled alerts yet.\n\nTo get started:\n1. Add calendar sources in the Calendar tab\n2. Click 'Sync Now' to fetch events\n3. Alerts will appear here as events approach")
-		emptyStateText.Alignment = fyne.TextAlignCenter
 		emptyStateText.Wrapping = fyne.TextWrapWord
 		emptyStateText.Importance = widget.MediumImportance
-		mainContent = container.NewCenter(emptyStateText)
+		mainContent = container.NewPadded(emptyStateText)
 	} else {
 		mainContent = table
 	}
