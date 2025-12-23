@@ -27,9 +27,6 @@ jobs:
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
-      - name: Build application
-        run: go build -o focus-breaker .
-
       - name: Package for Linux
         run: fyne package -os linux -icon assets/Icon.png -release
 
@@ -37,10 +34,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: focus-breaker-linux-amd64
-          path: focus-breaker.tar.gz
+          path: Focus Breaker.tar.xz
 
   build-linux-arm64:
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -57,9 +54,6 @@ jobs:
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
-      - name: Build application
-        run: go build -o focus-breaker .
-
       - name: Package for Linux
         run: fyne package -os linux -icon assets/Icon.png -release
 
@@ -67,10 +61,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: focus-breaker-linux-arm64
-          path: focus-breaker.tar.gz
+          path: Focus Breaker.tar.xz
 
   build-windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -79,20 +73,35 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 libasound2-dev
+
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
       - name: Build application
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
         run: go build -o focus-breaker.exe .
 
       - name: Package for Windows
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
         run: fyne package -os windows -icon assets/Icon.png -release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: focus-breaker-windows-amd64
-          path: focus-breaker.exe
+          path: Focus Breaker.exe
 
   build-macos:
     runs-on: macos-latest
@@ -107,26 +116,11 @@ jobs:
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
-      - name: Build application
-        run: go build -o focus-breaker .
-
       - name: Package for macOS
         run: fyne package -os darwin -icon assets/Icon.png -release
 
-      - name: List directory contents
-        run: ls -la
-
       - name: Create zip archive
-        run: |
-          if [ -d "focus-breaker.app" ]; then
-            zip -r focus-breaker-darwin.zip focus-breaker.app
-          elif [ -d "FocusBreaker.app" ]; then
-            zip -r focus-breaker-darwin.zip FocusBreaker.app
-          else
-            echo "Error: .app bundle not found"
-            ls -la
-            exit 1
-          fi
+        run: zip -r focus-breaker-darwin.zip "Focus Breaker.app"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
