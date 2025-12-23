@@ -1,4 +1,6 @@
 name: Build Multi-Platform
+permissions:
+  contents: write
 
 on:
   push:
