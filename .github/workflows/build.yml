@@ -119,7 +119,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld bash patch xz-utils bzip2 zip git
-          sudo ln -s /usr/bin/ld.lld /usr/bin/ld64.lld
 
       - name: Cache osxcross
         id: cache-osxcross
@@ -145,18 +144,33 @@ jobs:
           cd /tmp/osxcross
           UNATTENDED=yes OSX_VERSION_MIN=11.0 ./build.sh
 
+      - name: Setup osxcross environment
+        run: |
+          # Add osxcross to PATH
+          echo "/tmp/osxcross/target/bin" >> $GITHUB_PATH
+          
+          # Find and set the Clang resource directory
+          CLANG_VERSION=$(clang --version | grep -oP 'clang version \K[0-9]+' | head -1)
+          RESOURCE_DIR="/usr/lib/llvm-${CLANG_VERSION}/lib/clang/${CLANG_VERSION}"
+          if [ ! -d "$RESOURCE_DIR" ]; then
+            RESOURCE_DIR=$(clang -print-resource-dir)
+          fi
+          echo "OSXCROSS_CLANG_RESOURCE_DIR=${RESOURCE_DIR}" >> $GITHUB_ENV
+
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
       - name: Package for macOS
         env:
-          PATH: "/tmp/osxcross/target/bin:$PATH"
           CGO_ENABLED: "1"
           GOOS: darwin
           GOARCH: arm64
           CC: arm64-apple-darwin23.5-clang
           CXX: arm64-apple-darwin23.5-clang++
-        run: fyne package -os darwin -icon assets/Icon.png -release
+          CGO_CFLAGS: "-I/tmp/osxcross/target/SDK/MacOSX14.5.sdk/usr/include"
+        run: |
+          export PATH="/tmp/osxcross/target/bin:$PATH"
+          fyne package -os darwin -icon assets/Icon.png -release
 
       - name: Create zip archive
         run: zip -r focus-breaker-darwin.zip "Focus Breaker.app"
