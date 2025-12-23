@@ -9,19 +9,8 @@ on:
     types: [created]
 
 jobs:
-  build:
+  build-linux-amd64:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-          - os: linux
-            arch: arm64
-          - os: windows
-            arch: amd64
-          - os: darwin
-            arch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -30,33 +19,112 @@ jobs:
         with:
           go-version: "1.25"
 
-      - name: Install fyne-cross
-        run: go install github.com/fyne-io/fyne-cross@latest
-
-      - name: Build for ${{ matrix.os }} ${{ matrix.arch }}
+      - name: Install dependencies
         run: |
-          fyne-cross ${{ matrix.os }} -arch ${{ matrix.arch }} -name focus-breaker -release -pull
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
-      - name: Prepare artifacts
-        run: |
-          mkdir -p artifacts
-          if [ "${{ matrix.os }}" = "linux" ]; then
-            mv fyne-cross/dist/linux-${{ matrix.arch }}/focus-breaker.tar.xz artifacts/focus-breaker-${{ matrix.os }}-${{ matrix.arch }}.tar.xz
-          elif [ "${{ matrix.os }}" = "windows" ]; then
-            mv fyne-cross/dist/windows-${{ matrix.arch }}/focus-breaker.exe.zip artifacts/focus-breaker-${{ matrix.os }}-${{ matrix.arch }}.zip
-          elif [ "${{ matrix.os }}" = "darwin" ]; then
-            mv fyne-cross/dist/darwin-${{ matrix.arch }}/focus-breaker.app.zip artifacts/focus-breaker-${{ matrix.os }}-${{ matrix.arch }}.zip
-          fi
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Build application
+        run: go build -o focus-breaker .
+
+      - name: Package for Linux
+        run: fyne package -os linux -icon assets/Icon.png -release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: focus-breaker-${{ matrix.os }}-${{ matrix.arch }}
-          path: artifacts/*
+          name: focus-breaker-linux-amd64
+          path: focus-breaker.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Build application
+        run: go build -o focus-breaker .
+
+      - name: Package for Linux
+        run: fyne package -os linux -icon assets/Icon.png -release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-breaker-linux-arm64
+          path: focus-breaker.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Build application
+        run: go build -o focus-breaker.exe .
+
+      - name: Package for Windows
+        run: fyne package -os windows -icon assets/Icon.png -release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-breaker-windows-amd64
+          path: focus-breaker.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Build application
+        run: go build -o focus-breaker .
+
+      - name: Package for macOS
+        run: fyne package -os darwin -icon assets/Icon.png -release
+
+      - name: Create zip archive
+        run: zip -r focus-breaker-darwin.zip focus-breaker.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-breaker-darwin-arm64
+          path: focus-breaker-darwin.zip
 
   release:
     if: github.event_name == 'release'
-    needs: [build]
+    needs: [build-linux-amd64, build-linux-arm64, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -71,7 +139,7 @@ jobs:
           ls -lh release/
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: release/*
         env:
