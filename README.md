@@ -57,10 +57,15 @@ Download the latest release for your platform from the [Releases page](https://g
 
 ### Linux Installation
 
-0. (the bin is built with wayland and flatpak in mind)
-1. Download the appropriate `.tar.gz` for your architecture
-2. Extract: `tar -xzf focus-breaker-linux-amd64.tar.gz`
-3. Run: `./focus-breaker`
+1. (the bin is built with wayland and flatpak in mind)
+2. Install the flatpak:
+   ```bash
+   flatpak install focus-breaker.flatpak
+   ```
+3. Run:
+   ```bash
+   flatpak run io.github.borgmon.FocusBreaker
+   ```
 
 ## Setup
 It lives inside your system tray.
