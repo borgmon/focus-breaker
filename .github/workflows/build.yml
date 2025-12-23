@@ -30,7 +30,7 @@ jobs:
         run: go install fyne.io/tools/cmd/fyne@latest
 
       - name: Package for Linux
-        run: fyne package -os linux -icon assets/Icon.png -release
+        run: fyne package -os linux -release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -57,7 +57,7 @@ jobs:
         run: go install fyne.io/tools/cmd/fyne@latest
 
       - name: Package for Linux
-        run: fyne package -os linux -icon assets/Icon.png -release
+        run: fyne package -os linux -release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -97,7 +97,7 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: "1"
           CC: x86_64-w64-mingw32-gcc
-        run: fyne package -os windows -icon assets/Icon.png -release
+        run: fyne package -os windows -release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -106,7 +106,7 @@ jobs:
           path: Focus Breaker.exe
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -115,10 +115,47 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld bash patch xz-utils bzip2 zip git
+          sudo ln -s /usr/bin/ld.lld /usr/bin/ld64.lld
+
+      - name: Cache osxcross
+        id: cache-osxcross
+        uses: actions/cache@v4
+        with:
+          path: /tmp/osxcross
+          key: osxcross-2.0-llvm-macos14.5
+
+      - name: Install osxcross
+        if: steps.cache-osxcross.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch 2.0-llvm-based https://github.com/tpoechtrager/osxcross /tmp/osxcross
+
+      - name: Download macOS SDK
+        if: steps.cache-osxcross.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp/osxcross/tarballs
+          wget -q https://github.com/joseluisq/macosx-sdks/releases/download/14.5/MacOSX14.5.sdk.tar.xz
+
+      - name: Build osxcross
+        if: steps.cache-osxcross.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp/osxcross
+          UNATTENDED=yes OSX_VERSION_MIN=11.0 ./build.sh
+
       - name: Install fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
       - name: Package for macOS
+        env:
+          PATH: "/tmp/osxcross/target/bin:$PATH"
+          CGO_ENABLED: "1"
+          GOOS: darwin
+          GOARCH: arm64
+          CC: arm64-apple-darwin23.5-clang
+          CXX: arm64-apple-darwin23.5-clang++
         run: fyne package -os darwin -icon assets/Icon.png -release
 
       - name: Create zip archive
