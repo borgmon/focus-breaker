@@ -120,6 +120,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld bash patch xz-utils bzip2 zip git
+          sudo ln -s /usr/bin/ld.lld /usr/bin/ld64.lld
 
       - name: Cache osxcross
         id: cache-osxcross
