@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"golang.design/x/hotkey"
 )
 
 type AlertWindow struct {
@@ -26,15 +28,18 @@ type AlertWindow struct {
 	closeHeld      bool
 	snoozeHeld     bool
 	audioPlayer    *AudioPlayer
+	cmdQHotkey     *hotkey.Hotkey
+	stopMonitoring chan struct{}
 }
 
 func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, onClose, onSnooze func()) *AlertWindow {
 	aw := &AlertWindow{
-		app:           app,
-		event:         event,
-		snoozeMinutes: snoozeMinutes,
-		onClose:       onClose,
-		onSnooze:      onSnooze,
+		app:            app,
+		event:          event,
+		snoozeMinutes:  snoozeMinutes,
+		onClose:        onClose,
+		onSnooze:       onSnooze,
+		stopMonitoring: make(chan struct{}),
 	}
 
 	// Play alarm sound
@@ -46,10 +51,23 @@ func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, onClose, onSno
 		aw.window.SetFullScreen(true)
 		aw.buildUI()
 
+		// Register Cmd+Q hotkey when window is focused
+		aw.registerCmdQPrevention()
+
+		// Monitor window focus and refocus when needed
+		aw.setupFocusMonitoring()
+
 		// Stop sound when window is closed
 		aw.window.SetOnClosed(func() {
+			// Stop monitoring first
+			close(aw.stopMonitoring)
+
 			if aw.audioPlayer != nil {
 				aw.audioPlayer.Stop()
+			}
+			// Unregister hotkey when window is closed
+			if aw.cmdQHotkey != nil {
+				aw.cmdQHotkey.Unregister()
 			}
 		})
 	})
@@ -234,4 +252,76 @@ func (aw *AlertWindow) Show() {
 			aw.window.Show()
 		}
 	})
+}
+
+func (aw *AlertWindow) registerCmdQPrevention() {
+	go func() {
+		// Register Cmd+Q (Cmd is ModCmd on macOS)
+		hk := hotkey.New([]hotkey.Modifier{hotkey.ModCmd}, hotkey.KeyQ)
+		if err := hk.Register(); err != nil {
+			log.Printf("Failed to register Cmd+Q hotkey prevention: %v", err)
+			return
+		}
+		aw.cmdQHotkey = hk
+
+		// Start listen hotkey event whenever it is ready
+		// This loop will consume Cmd+Q events and prevent default quit behavior
+		for range hk.Keydown() {
+			log.Println("Cmd+Q blocked - use the Close button to dismiss the alert")
+		}
+	}()
+}
+
+func (aw *AlertWindow) setupFocusMonitoring() {
+	// Monitor if window loses focus and unregister hotkey
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		wasFocused := true
+		for {
+			select {
+			case <-aw.stopMonitoring:
+				// Window closed, stop monitoring
+				log.Println("Stopping focus monitoring")
+				return
+			case <-ticker.C:
+				if aw.window == nil {
+					return
+				}
+
+				// Check if app is active using macOS native API
+				isFocused := isAppActive()
+
+				// Detect focus change
+				if wasFocused && !isFocused {
+					// Window lost focus - unregister hotkey
+					if aw.cmdQHotkey != nil {
+						log.Println("Window lost focus - unregistering Cmd+Q hotkey")
+						aw.cmdQHotkey.Unregister()
+						aw.cmdQHotkey = nil
+					}
+				} else if !wasFocused && isFocused {
+					// Window gained focus - register hotkey
+					if aw.cmdQHotkey == nil {
+						log.Println("Window gained focus - registering Cmd+Q hotkey")
+						aw.registerCmdQPrevention()
+					}
+				}
+
+				// If app is not focused, bring it to front
+				if !isFocused {
+					log.Println("Alert window not active - bringing to front")
+					activateApp()
+					fyne.Do(func() {
+						if aw.window != nil {
+							aw.window.Show()
+						}
+					})
+				}
+
+				wasFocused = isFocused
+			}
+		}
+	}()
 }
