@@ -20,6 +20,7 @@ Hold-to-confirm buttons require 5 seconds to dismiss. If breaking focus was easy
 
 - **Full-Screen Alerts**: Impossible to ignore, covers your entire screen
 - **Hold-to-Confirm Buttons**: 5-second hold required to dismiss or snooze (no accidental clicks)
+- **Cheating Prevention**: Cmd + Q or switching window will NOT save you.
 - **Multiple Alert Times**: Get notified 15 minutes before, 5 minutes before, or set custom times.
 - **Native App**: Written in Golang, not Electron! Only ~30MB memory footprint
 - **Smart Meeting Detection**: Automatically extracts Zoom, Google Meet, Teams, and Webex links

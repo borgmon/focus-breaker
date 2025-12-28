@@ -22,6 +22,8 @@ var (
 type AudioPlayer struct {
 	stopChan chan struct{}
 	player   *oto.Player
+	stopped  bool
+	mu       sync.Mutex
 }
 
 // initAudioContext initializes the global audio context once
@@ -74,28 +76,41 @@ func playAlarmSound() *AudioPlayer {
 
 	// Play the sound in a goroutine so it doesn't block
 	go func() {
-		// Create a new player that will handle our sound
-		ap.player = globalAudioCtx.NewPlayer(bytes.NewReader(audioData))
+		// Loop the alarm sound until stopped
+		for {
+			// Create a new player for each loop iteration
+			ap.player = globalAudioCtx.NewPlayer(bytes.NewReader(audioData))
 
-		// Play starts playing the sound and returns without waiting
-		ap.player.Play()
+			// Play starts playing the sound and returns without waiting
+			ap.player.Play()
 
-		// Wait for the sound to finish playing or stop signal
-		for ap.player.IsPlaying() {
+			// Wait for the sound to finish playing or stop signal
+			for ap.player.IsPlaying() {
+				select {
+				case <-ap.stopChan:
+					// Stop requested, pause and cleanup then exit
+					ap.player.Pause()
+					ap.player.Close()
+					log.Println("Audio player closed")
+					return
+				case <-time.After(10 * time.Millisecond):
+					// Continue checking
+				}
+			}
+
+			// Close the player before creating a new one
+			err = ap.player.Close()
+			if err != nil {
+				log.Printf("Failed to close audio player: %v", err)
+			}
+
+			// Check if stop was requested between loops
 			select {
 			case <-ap.stopChan:
-				// Stop requested, cleanup and exit
-				ap.player.Close()
 				return
-			case <-time.After(time.Millisecond):
-				// Continue checking
+			default:
+				// Continue looping
 			}
-		}
-
-		// Cleanup
-		err = ap.player.Close()
-		if err != nil {
-			log.Printf("Failed to close audio player: %v", err)
 		}
 	}()
 
@@ -104,8 +119,23 @@ func playAlarmSound() *AudioPlayer {
 
 // Stop stops the audio playback
 func (ap *AudioPlayer) Stop() {
-	if ap != nil {
+	if ap == nil {
+		return
+	}
+
+	ap.mu.Lock()
+	defer ap.mu.Unlock()
+
+	if !ap.stopped {
+		ap.stopped = true
 		close(ap.stopChan)
+
+		// Also try to pause the current player if it exists
+		if ap.player != nil {
+			ap.player.Pause()
+		}
+
+		log.Println("Audio playback stopped")
 	}
 }
 
