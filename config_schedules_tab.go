@@ -13,10 +13,12 @@ import (
 func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 	// Get initial schedules data
 	cw.schedulesData = cw.getScheduledAlerts()
+	cw.selectedScheduleRow = -1
 
 	// Create table widget
 	table := widget.NewTable(
 		func() (rows int, cols int) {
+			// Dynamically return the current length of schedulesData
 			return len(cw.schedulesData), 6
 		},
 		func() fyne.CanvasObject {
@@ -118,6 +120,12 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 		}
 	}
 
+	// Handle row selection for deletion
+	table.OnSelected = func(id widget.TableCellID) {
+		// Store the selected row
+		cw.selectedScheduleRow = id.Row
+	}
+
 	// Calculate column widths based on content
 	cw.updateSchedulesColumnWidths(table)
 
@@ -129,15 +137,27 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 	})
 	refreshButton.Icon = theme.ViewRefreshIcon()
 
+	addAlarmButton := widget.NewButton("Add Alarm", func() {
+		cw.showAddAlarmDialog()
+	})
+	addAlarmButton.Icon = theme.ContentAddIcon()
+
+	deleteButton := widget.NewButton("Delete", func() {
+		cw.showDeleteAlertDialog()
+	})
+	deleteButton.Icon = theme.DeleteIcon()
+
 	helpText := widget.NewLabel("Shows all alerts including past alerts from the last 12 hours. If you don't see any alerts, make sure you have added calendar sources in the Calendar tab and clicked 'Sync Now'.")
 	helpText.Wrapping = fyne.TextWrapWord
 	helpText.Importance = widget.MediumImportance
+
+	buttonContainer := container.NewHBox(refreshButton, addAlarmButton, deleteButton)
 
 	headerContent := container.NewVBox(
 		widget.NewLabel("Scheduled Alerts"),
 		widget.NewSeparator(),
 		helpText,
-		refreshButton,
+		buttonContainer,
 	)
 
 	// Check if there are no scheduled alerts to show empty state
@@ -151,7 +171,8 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 		mainContent = table
 	}
 
-	content := container.NewBorder(
+	// Store the container for dynamic updates
+	cw.schedulesContainer = container.NewBorder(
 		headerContent,
 		nil,
 		nil,
@@ -159,22 +180,37 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 		mainContent,
 	)
 
-	return container.NewPadded(content)
+	return container.NewPadded(cw.schedulesContainer)
 }
 
 func (cw *ConfigWindow) refreshSchedulesData() {
-	if cw.schedulesTable == nil {
+	if cw.schedulesContainer == nil {
 		return
 	}
 
 	// Update the schedules data
 	cw.schedulesData = cw.getScheduledAlerts()
 
-	// Recalculate column widths based on new data
-	cw.updateSchedulesColumnWidths(cw.schedulesTable)
+	// If we have a table, recalculate column widths and refresh it
+	if cw.schedulesTable != nil {
+		cw.updateSchedulesColumnWidths(cw.schedulesTable)
+		cw.schedulesTable.Refresh()
+	}
 
-	// Refresh the table
-	cw.schedulesTable.Refresh()
+	// Update the main content based on whether we have data
+	var mainContent fyne.CanvasObject
+	if len(cw.schedulesData) == 0 {
+		emptyStateText := widget.NewLabel("No scheduled alerts yet.\n\nTo get started:\n1. Add calendar sources in the Calendar tab\n2. Click 'Sync Now' to fetch events\n3. Alerts will appear here as events approach")
+		emptyStateText.Wrapping = fyne.TextWrapWord
+		emptyStateText.Importance = widget.MediumImportance
+		mainContent = container.NewPadded(emptyStateText)
+	} else {
+		mainContent = cw.schedulesTable
+	}
+
+	// Update the container's content
+	cw.schedulesContainer.Objects[0] = mainContent
+	cw.schedulesContainer.Refresh()
 }
 
 func (cw *ConfigWindow) updateSchedulesColumnWidths(table *widget.Table) {

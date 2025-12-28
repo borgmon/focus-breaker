@@ -32,9 +32,11 @@ type ConfigWindow struct {
 	alertBeforeContainer  *fyne.Container
 
 	// Schedules tab
-	schedulesTable *widget.Table
-	schedulesData  []*ScheduledAlert
-	alertStore     *AlertStore
+	schedulesTable      *widget.Table
+	schedulesData       []*ScheduledAlert
+	schedulesContainer  *fyne.Container
+	selectedScheduleRow int
+	alertStore          *AlertStore
 
 	// UI state
 	hasUnsavedChanges bool

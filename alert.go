@@ -349,3 +349,28 @@ func (as *AlertStore) GetEvent(eventID string) *Event {
 
 	return as.events[eventID]
 }
+
+// AddManualAlert adds a manual event and its alert to the store
+func (as *AlertStore) AddManualAlert(event *Event, alertTime time.Time) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	// Add the event
+	as.events[event.ID] = event
+
+	// Create the alert
+	alert := &ScheduledAlert{
+		ID:          uuid.New().String(),
+		EventID:     event.ID,
+		Status:      AlertStatusPending,
+		AlertTime:   alertTime,
+		AlertOffset: 0, // Manual alarms have 0 offset
+	}
+
+	alertID := generateAlertID(event.ID, 0)
+	as.alertsById[alertID] = alert
+
+	// Add to time-based index
+	timeKey := roundToMinute(alertTime).Unix()
+	as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
+}

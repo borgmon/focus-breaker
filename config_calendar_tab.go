@@ -60,71 +60,62 @@ func (cw *ConfigWindow) buildCalendarTab() fyne.CanvasObject {
 	plusButton := widget.NewButton("", func() {
 		nameEntry := widget.NewEntry()
 		nameEntry.SetPlaceHolder("e.g., Work Calendar")
+		nameEntry.Validator = func(s string) error {
+			if s == "" {
+				return fmt.Errorf("name is required")
+			}
+			return nil
+		}
 
 		urlEntry := widget.NewMultiLineEntry()
 		urlEntry.SetPlaceHolder("https://calendar.example.com/ical/...")
 		urlEntry.Wrapping = fyne.TextWrapBreak
 		urlEntry.SetMinRowsVisible(5)
-
-		// Use a custom dialog to validate before closing
-		content := container.NewVBox(
-			widget.NewLabel("Name:"),
-			nameEntry,
-			widget.NewLabel("URL:"),
-			urlEntry,
-		)
-
-		var addDialog dialog.Dialog
-		addDialog = dialog.NewCustomConfirm("Add iCal Source", "Add", "Cancel", content, func(confirmed bool) {
-			if !confirmed {
-				return
-			}
-
-			name := nameEntry.Text
-			url := urlEntry.Text
-
-			// Validation
-			if name == "" {
-				dialog.ShowError(fmt.Errorf("name is required"), cw.window)
-				return
-			}
-			if url == "" {
-				dialog.ShowError(fmt.Errorf("URL is required"), cw.window)
-				return
+		urlEntry.Validator = func(s string) error {
+			if s == "" {
+				return fmt.Errorf("URL is required")
 			}
 
 			// Basic URL validation - check if it starts with http:// or https://
-			if len(url) < 10 {
-				dialog.ShowError(fmt.Errorf("please enter a valid URL (http:// or https://)"), cw.window)
-				return
+			if len(s) < 10 {
+				return fmt.Errorf("please enter a valid URL (http:// or https://)")
 			}
 			hasValidPrefix := false
-			if len(url) >= 7 && url[:7] == "http://" {
+			if len(s) >= 7 && s[:7] == "http://" {
 				hasValidPrefix = true
 			}
-			if len(url) >= 8 && url[:8] == "https://" {
+			if len(s) >= 8 && s[:8] == "https://" {
 				hasValidPrefix = true
 			}
 			if !hasValidPrefix {
-				dialog.ShowError(fmt.Errorf("URL must start with http:// or https://"), cw.window)
-				return
+				return fmt.Errorf("URL must start with http:// or https://")
 			}
 
 			// Check for duplicate URLs
 			for _, existing := range cw.icalSourcesData {
-				if existing.URL == url {
-					dialog.ShowInformation("Duplicate Calendar",
-						"This calendar URL has already been added.",
-						cw.window)
-					return
+				if existing.URL == s {
+					return fmt.Errorf("this calendar URL has already been added")
 				}
+			}
+
+			return nil
+		}
+
+		formItems := []*widget.FormItem{
+			widget.NewFormItem("Name", nameEntry),
+			widget.NewFormItem("URL", urlEntry),
+		}
+
+		addDialog := dialog.NewForm("Add iCal Source", "Add", "Cancel", formItems, func(confirmed bool) {
+			if !confirmed {
+				return
 			}
 
 			// Add the new source with generated UUID
 			cw.icalSourcesData = append(cw.icalSourcesData, ICalSource{
 				ID:   uuid.New().String(),
-				Name: name,
-				URL:  url,
+				Name: nameEntry.Text,
+				URL:  urlEntry.Text,
 			})
 
 			cw.icalSourcesList.Refresh()
