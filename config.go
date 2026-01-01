@@ -15,6 +15,7 @@ type Config struct {
 	SnoozeTime       int          `json:"snooze_time"`
 	NotifyUnaccepted bool         `json:"notify_unaccepted"`
 	AlertBeforeMin   string       `json:"alert_before_min"`
+	HoldTimeSeconds  int          `json:"hold_time_seconds"`
 }
 
 func loadConfig(app fyne.App) *Config {
@@ -26,6 +27,7 @@ func loadConfig(app fyne.App) *Config {
 		SnoozeTime:       prefs.IntWithFallback("snooze_time", 4),
 		NotifyUnaccepted: prefs.BoolWithFallback("notify_unaccepted", false),
 		AlertBeforeMin:   prefs.StringWithFallback("alert_before_min", "5,15"),
+		HoldTimeSeconds:  prefs.IntWithFallback("hold_time_seconds", 5),
 	}
 
 	// Load iCal sources from JSON string
@@ -49,6 +51,7 @@ func saveConfig(app fyne.App, config *Config) {
 	prefs.SetInt("snooze_time", config.SnoozeTime)
 	prefs.SetBool("notify_unaccepted", config.NotifyUnaccepted)
 	prefs.SetString("alert_before_min", config.AlertBeforeMin)
+	prefs.SetInt("hold_time_seconds", config.HoldTimeSeconds)
 
 	// Save iCal sources as JSON string
 	if icalSourcesJSON, err := json.Marshal(config.ICalSources); err == nil {

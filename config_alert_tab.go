@@ -30,6 +30,20 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 	})
 	cw.notifyUnacceptedCheck.SetChecked(cw.config.NotifyUnaccepted)
 
+	// Create Hold Time select (1-10 seconds)
+	holdTimeOptions := []string{"1 sec", "2 sec", "3 sec", "4 sec", "5 sec", "6 sec", "7 sec", "8 sec", "9 sec", "10 sec"}
+	cw.holdTimeSelect = widget.NewSelect(holdTimeOptions, func(value string) {
+		cw.markChanged()
+	})
+	currentHoldTime := cw.config.HoldTimeSeconds
+	if currentHoldTime < 1 {
+		currentHoldTime = 5 // Default to 5 seconds
+	}
+	if currentHoldTime > 10 {
+		currentHoldTime = 10 // Cap at 10 seconds
+	}
+	cw.holdTimeSelect.SetSelected(strconv.Itoa(currentHoldTime) + " sec")
+
 	// Initialize alert before data from config
 	cw.alertBeforeData = []string{}
 	if cw.config.AlertBeforeMin != "" {
@@ -165,9 +179,14 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 	notifyHelp.Wrapping = fyne.TextWrapWord
 	notifyHelp.Importance = widget.MediumImportance
 
+	holdTimeLabel := widget.NewLabel("Button Hold Time:")
+	holdTimeHelp := widget.NewLabel("How long to hold Close and Snooze buttons to activate")
+	holdTimeHelp.Importance = widget.MediumImportance
+
 	// Wrap snooze select and checkbox to control their height
 	snoozeContainer := container.NewVBox(cw.snoozeTimeSelect)
 	notifyContainer := container.NewVBox(cw.notifyUnacceptedCheck)
+	holdTimeContainer := container.NewVBox(cw.holdTimeSelect)
 
 	// Use FormLayout for proper label-value alignment
 	form := container.New(layout.NewFormLayout(),
@@ -179,6 +198,9 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 
 		container.NewVBox(notifyLabel, notifyHelp),
 		notifyContainer,
+
+		container.NewVBox(holdTimeLabel, holdTimeHelp),
+		holdTimeContainer,
 	)
 
 	content := container.NewVBox(

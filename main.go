@@ -205,6 +205,7 @@ func (fb *FocusBreaker) showAlert(alert *ScheduledAlert) {
 		fb.app,
 		*event,
 		fb.config.SnoozeTime,
+		fb.config.HoldTimeSeconds,
 		func() {
 			// Mark alert as alerted (closed/dismissed)
 			fb.alertStore.MarkAlertStatus(alert.EventID, alert.AlertOffset, AlertStatusAlerted, nil)

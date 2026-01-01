@@ -14,12 +14,13 @@ import (
 )
 
 type AlertWindow struct {
-	window        fyne.Window
-	app           fyne.App
-	event         Event
-	snoozeMinutes int
-	onClose       func()
-	onSnooze      func()
+	window          fyne.Window
+	app             fyne.App
+	event           Event
+	snoozeMinutes   int
+	holdTimeSeconds int
+	onClose         func()
+	onSnooze        func()
 
 	closeProgress  float64
 	snoozeProgress float64
@@ -32,14 +33,15 @@ type AlertWindow struct {
 	stopMonitoring chan struct{}
 }
 
-func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, onClose, onSnooze func()) *AlertWindow {
+func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, holdTimeSeconds int, onClose, onSnooze func()) *AlertWindow {
 	aw := &AlertWindow{
-		app:            app,
-		event:          event,
-		snoozeMinutes:  snoozeMinutes,
-		onClose:        onClose,
-		onSnooze:       onSnooze,
-		stopMonitoring: make(chan struct{}),
+		app:             app,
+		event:           event,
+		snoozeMinutes:   snoozeMinutes,
+		holdTimeSeconds: holdTimeSeconds,
+		onClose:         onClose,
+		onSnooze:        onSnooze,
+		stopMonitoring:  make(chan struct{}),
 	}
 
 	// Play alarm sound
@@ -101,7 +103,7 @@ func (aw *AlertWindow) buildUI() {
 	}
 
 	var closeButton *HoldButton
-	closeButton = NewHoldButton("Close (Hold 5s)", func() {
+	closeButton = NewHoldButton(fmt.Sprintf("Close (Hold %ds)", aw.holdTimeSeconds), func() {
 		aw.startCloseProgress(closeButton)
 	}, func() {
 		aw.stopCloseProgress(closeButton)
@@ -124,7 +126,7 @@ func (aw *AlertWindow) buildUI() {
 	buttonRow := container.NewHBox()
 	if aw.snoozeMinutes > 0 {
 		var snoozeButton *HoldButton
-		snoozeButton = NewHoldButton(fmt.Sprintf("Snooze %dm (Hold 5s)", aw.snoozeMinutes), func() {
+		snoozeButton = NewHoldButton(fmt.Sprintf("Snooze %dm (Hold %ds)", aw.snoozeMinutes, aw.holdTimeSeconds), func() {
 			aw.startSnoozeProgress(snoozeButton)
 		}, func() {
 			aw.stopSnoozeProgress(snoozeButton)
@@ -155,7 +157,11 @@ func (aw *AlertWindow) startCloseProgress(button *HoldButton) {
 		button.SetProgress(0)
 	})
 
-	aw.closeTicker = time.NewTicker(50 * time.Millisecond)
+	tickInterval := 50 * time.Millisecond
+	totalTicks := float64(aw.holdTimeSeconds*1000) / float64(tickInterval.Milliseconds())
+	progressIncrement := 1.0 / totalTicks
+
+	aw.closeTicker = time.NewTicker(tickInterval)
 
 	go func() {
 		for range aw.closeTicker.C {
@@ -163,7 +169,7 @@ func (aw *AlertWindow) startCloseProgress(button *HoldButton) {
 				return
 			}
 
-			aw.closeProgress += 0.01
+			aw.closeProgress += progressIncrement
 			currentProgress := aw.closeProgress
 
 			fyne.Do(func() {
@@ -206,7 +212,11 @@ func (aw *AlertWindow) startSnoozeProgress(button *HoldButton) {
 		button.SetProgress(0)
 	})
 
-	aw.snoozeTicker = time.NewTicker(50 * time.Millisecond)
+	tickInterval := 50 * time.Millisecond
+	totalTicks := float64(aw.holdTimeSeconds*1000) / float64(tickInterval.Milliseconds())
+	progressIncrement := 1.0 / totalTicks
+
+	aw.snoozeTicker = time.NewTicker(tickInterval)
 
 	go func() {
 		for range aw.snoozeTicker.C {
@@ -214,7 +224,7 @@ func (aw *AlertWindow) startSnoozeProgress(button *HoldButton) {
 				return
 			}
 
-			aw.snoozeProgress += 0.01
+			aw.snoozeProgress += progressIncrement
 			currentProgress := aw.snoozeProgress
 
 			fyne.Do(func() {

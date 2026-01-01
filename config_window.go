@@ -30,6 +30,7 @@ type ConfigWindow struct {
 	alertBeforeList       *widget.List
 	alertBeforeData       []string
 	alertBeforeContainer  *fyne.Container
+	holdTimeSelect        *widget.Select
 
 	// Schedules tab
 	schedulesTable      *widget.Table
@@ -142,7 +143,15 @@ func (cw *ConfigWindow) buildUI() {
 			}
 		}
 
-		alertWindow := NewAlertWindow(cw.app, sampleEvent, snoozeTime, func() {
+		holdTimeSeconds := 5
+		if cw.holdTimeSelect.Selected != "" {
+			var val int
+			if _, err := fmt.Sscanf(cw.holdTimeSelect.Selected, "%d sec", &val); err == nil {
+				holdTimeSeconds = val
+			}
+		}
+
+		alertWindow := NewAlertWindow(cw.app, sampleEvent, snoozeTime, holdTimeSeconds, func() {
 		}, func() {
 		})
 		alertWindow.Show()
@@ -228,6 +237,15 @@ func (cw *ConfigWindow) getConfigFromUI() *Config {
 		alertBeforeMin += val
 	}
 
+	holdTimeSeconds := 5 // Default
+	if cw.holdTimeSelect.Selected != "" {
+		// Parse "5 sec" -> 5
+		var val int
+		if _, err := fmt.Sscanf(cw.holdTimeSelect.Selected, "%d sec", &val); err == nil {
+			holdTimeSeconds = val
+		}
+	}
+
 	return &Config{
 		AutoStart:        cw.autoStartCheck.Checked,
 		ICalSources:      cw.icalSourcesData,
@@ -235,6 +253,7 @@ func (cw *ConfigWindow) getConfigFromUI() *Config {
 		SnoozeTime:       snoozeTime,
 		NotifyUnaccepted: cw.notifyUnacceptedCheck.Checked,
 		AlertBeforeMin:   alertBeforeMin,
+		HoldTimeSeconds:  holdTimeSeconds,
 	}
 }
 
