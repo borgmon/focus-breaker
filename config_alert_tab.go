@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 
@@ -74,44 +75,39 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 		selectedIndex = id
 	}
 
-	// Create entry for adding new alert times
-	newAlertEntry := widget.NewEntry()
-	newAlertEntry.SetPlaceHolder("Enter minutes (e.g., 5)")
+	// Create dropdown for adding new alert times
+	alertTimeOptions := []string{"1 min", "2 min", "3 min", "5 min", "10 min", "15 min", "20 min", "30 min", "45 min", "60 min", "90 min", "120 min"}
+	newAlertSelect := widget.NewSelect(alertTimeOptions, nil)
 
 	// Plus button to add new alert time
 	plusButton := widget.NewButton("", func() {
-		if newAlertEntry.Text == "" {
+		if newAlertSelect.Selected == "" {
 			dialog.ShowInformation("Invalid Input",
-				"Please enter a number of minutes.",
+				"Please select a number of minutes.",
 				cw.window)
 			return
 		}
 
-		// Validate that input is a valid positive integer
-		val, err := strconv.Atoi(newAlertEntry.Text)
+		// Extract the number from the selected option (e.g., "5 min" -> "5")
+		selectedValue := newAlertSelect.Selected
+		var inputStr string
+		var val int
+		_, err := fmt.Sscanf(selectedValue, "%d min", &val)
 		if err != nil || val <= 0 {
 			dialog.ShowInformation("Invalid Input",
-				"Please enter a positive number (e.g., 5, 10, 15).",
+				"Please select a valid option.",
 				cw.window)
-			newAlertEntry.SetText("")
 			return
 		}
-
-		// Warn for very large values
-		if val > 1440 {
-			dialog.ShowInformation("Large Value",
-				"Are you sure you want to set an alert more than 24 hours (1440 minutes) before?",
-				cw.window)
-		}
+		inputStr = strconv.Itoa(val)
 
 		// Check for duplicates
-		inputStr := newAlertEntry.Text
 		for _, existing := range cw.alertBeforeData {
 			if existing == inputStr {
 				dialog.ShowInformation("Duplicate Alert",
 					"This alert time has already been added.",
 					cw.window)
-				newAlertEntry.SetText("")
+				newAlertSelect.ClearSelected()
 				return
 			}
 		}
@@ -127,7 +123,7 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 		})
 
 		cw.alertBeforeList.Refresh()
-		newAlertEntry.SetText("")
+		newAlertSelect.ClearSelected()
 		cw.markChanged()
 	})
 	plusButton.Icon = theme.ContentAddIcon()
@@ -145,7 +141,7 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 	})
 	minusButton.Icon = theme.ContentRemoveIcon()
 
-	addControls := container.NewBorder(nil, nil, nil, container.NewHBox(plusButton, minusButton), newAlertEntry)
+	addControls := container.NewBorder(nil, nil, nil, container.NewHBox(plusButton, minusButton), newAlertSelect)
 
 	// Wrap list in a scroll container with minimum height
 	listScroll := container.NewScroll(cw.alertBeforeList)

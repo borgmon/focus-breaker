@@ -45,6 +45,96 @@ func (s *ICalSource) Validate() bool {
 	return s.Name != "" && s.URL != ""
 }
 
+// processEvent applies filters to an event and returns true if it should be included
+func processEvent(event Event, now, tomorrow time.Time, filteredMissingTime, filteredCancelled, filteredAllDay, filteredOutsideWindow *int) bool {
+	if event.StartTime.IsZero() || event.EndTime.IsZero() {
+		*filteredMissingTime++
+		log.Printf("  [FILTERED] Missing time - Event: \"%s\" (Start: %v, End: %v)",
+			event.Title, event.StartTime, event.EndTime)
+		return false
+	}
+
+	// Filter out cancelled events
+	if event.Status == "CANCELLED" {
+		*filteredCancelled++
+		log.Printf("  [FILTERED] [Cancelled] - Event: \"%s\" (Start: %s, Status: %s)",
+			event.Title, event.StartTime.Format("2006-01-02 15:04"), event.Status)
+		return false
+	}
+
+	startDate := event.StartTime.Format("2006-01-02")
+	endDate := event.EndTime.Format("2006-01-02")
+	duration := event.EndTime.Sub(event.StartTime)
+
+	if startDate != endDate && duration >= 24*time.Hour {
+		*filteredAllDay++
+		log.Printf("  [FILTERED] [All-day] - Event: \"%s\" (Start: %s, End: %s, Duration: %v)",
+			event.Title, event.StartTime.Format("2006-01-02 15:04"),
+			event.EndTime.Format("2006-01-02 15:04"), duration)
+		return false
+	}
+
+	if event.StartTime.Before(tomorrow) && event.EndTime.After(now) {
+		log.Printf("  [INCLUDED] Event: \"%s\" (Start: %s, End: %s)",
+			event.Title, event.StartTime.Format("2006-01-02 15:04"),
+			event.EndTime.Format("2006-01-02 15:04"))
+		return true
+	}
+
+	*filteredOutsideWindow++
+	log.Printf("  [FILTERED] [Outside window] - Event: \"%s\" (Start: %s, End: %s, Now: %s, Tomorrow: %s)",
+		event.Title, event.StartTime.Format("2006-01-02 15:04"),
+		event.EndTime.Format("2006-01-02 15:04"), now.Format("2006-01-02 15:04"), tomorrow.Format("2006-01-02 15:04"))
+	return false
+}
+
+// expandRecurringEvent expands a recurring event into instances within the time window
+func expandRecurringEvent(baseEvent Event, rrule string, startTime, endTime time.Time) []Event {
+	// Parse RRULE - this is a simplified implementation
+	// For full RRULE support, consider using github.com/teambition/rrule-go
+	events := []Event{}
+
+	log.Printf("  [RECURRING] Expanding RRULE: %s for event \"%s\"", rrule, baseEvent.Title)
+
+	// Simple daily recurrence check
+	if strings.Contains(rrule, "FREQ=DAILY") {
+		duration := baseEvent.EndTime.Sub(baseEvent.StartTime)
+
+		// Start from the base event time and generate instances
+		current := baseEvent.StartTime
+		for current.Before(endTime) {
+			if current.After(startTime.Add(-24 * time.Hour)) {
+				instance := baseEvent
+				instance.StartTime = current
+				instance.EndTime = current.Add(duration)
+				instance.ID = baseEvent.ID + "-" + current.Format(time.RFC3339)
+				events = append(events, instance)
+				log.Printf("  [RECURRING] Generated instance at %s", current.Format("2006-01-02 15:04"))
+			}
+			current = current.Add(24 * time.Hour)
+		}
+	} else if strings.Contains(rrule, "FREQ=WEEKLY") {
+		duration := baseEvent.EndTime.Sub(baseEvent.StartTime)
+
+		current := baseEvent.StartTime
+		for current.Before(endTime) {
+			if current.After(startTime.Add(-24 * time.Hour)) {
+				instance := baseEvent
+				instance.StartTime = current
+				instance.EndTime = current.Add(duration)
+				instance.ID = baseEvent.ID + "-" + current.Format(time.RFC3339)
+				events = append(events, instance)
+				log.Printf("  [RECURRING] Generated instance at %s", current.Format("2006-01-02 15:04"))
+			}
+			current = current.Add(7 * 24 * time.Hour)
+		}
+	} else {
+		log.Printf("  [RECURRING] Unsupported RRULE pattern: %s", rrule)
+	}
+
+	return events
+}
+
 func fetchAndParseICal(icalURL string) ([]Event, error) {
 	resp, err := http.Get(icalURL)
 	if err != nil {
@@ -77,12 +167,15 @@ func fetchAndParseICal(icalURL string) ([]Event, error) {
 
 	decoder := ical.NewDecoder(strings.NewReader(bodyStr))
 	events := []Event{}
+	seenEventIDs := make(map[string]bool)
+	seenEventKeys := make(map[string]bool) // key: title + start time
 
 	now := time.Now()
 	tomorrow := now.Add(24 * time.Hour)
 
 	// Tracking filtered events
-	var filteredMissingTime, filteredCancelled, filteredAllDay, filteredOutsideWindow int
+	var filteredMissingTime, filteredCancelled, filteredAllDay, filteredOutsideWindow, filteredDuplicates int
+	var totalComponents, totalEvents int
 
 	for {
 		cal, err := decoder.Decode()
@@ -93,46 +186,84 @@ func fetchAndParseICal(icalURL string) ([]Event, error) {
 			return nil, fmt.Errorf("failed to decode calendar: %w", err)
 		}
 
+		log.Printf("  [DEBUG] Calendar decoded with %d children", len(cal.Children))
+
 		for _, comp := range cal.Children {
+			totalComponents++
 			if comp.Name != ical.CompEvent {
+				log.Printf("  [DEBUG] Skipping non-event component: %s", comp.Name)
 				continue
 			}
+			totalEvents++
 
 			event := parseEvent(comp)
 
-			if event.StartTime.IsZero() || event.EndTime.IsZero() {
-				filteredMissingTime++
+			// Check if this is a recurring event
+			rruleProp := comp.Props.Get(ical.PropRecurrenceRule)
+			if rruleProp != nil {
+				log.Printf("  [RECURRING] Event: \"%s\" has RRULE: %s", event.Title, rruleProp.Value)
+				// Expand recurring events within our time window
+				recurringEvents := expandRecurringEvent(event, rruleProp.Value, now, tomorrow)
+				for _, recEvent := range recurringEvents {
+					if processEvent(recEvent, now, tomorrow, &filteredMissingTime, &filteredCancelled, &filteredAllDay, &filteredOutsideWindow) {
+						// Check for duplicates by ID
+						if seenEventIDs[recEvent.ID] {
+							filteredDuplicates++
+							log.Printf("  [FILTERED] Duplicate (ID) - Event: \"%s\" (ID: %s)",
+								recEvent.Title, recEvent.ID)
+							continue
+						}
+
+						// Check for duplicates by title + start time
+						eventKey := recEvent.Title + "|" + recEvent.StartTime.Format(time.RFC3339)
+						if seenEventKeys[eventKey] {
+							filteredDuplicates++
+							log.Printf("  [FILTERED] Duplicate (Title+Time) - Event: \"%s\" (Start: %s)",
+								recEvent.Title, recEvent.StartTime.Format("2006-01-02 15:04"))
+							continue
+						}
+
+						seenEventIDs[recEvent.ID] = true
+						seenEventKeys[eventKey] = true
+						events = append(events, recEvent)
+					}
+				}
 				continue
 			}
 
-			// Filter out cancelled events
-			if event.Status == "CANCELLED" {
-				filteredCancelled++
-				continue
-			}
+			// Process single event
+			if processEvent(event, now, tomorrow, &filteredMissingTime, &filteredCancelled, &filteredAllDay, &filteredOutsideWindow) {
+				// Check for duplicates by ID
+				if seenEventIDs[event.ID] {
+					filteredDuplicates++
+					log.Printf("  [FILTERED] Duplicate (ID) - Event: \"%s\" (ID: %s)",
+						event.Title, event.ID)
+					continue
+				}
 
-			startDate := event.StartTime.Format("2006-01-02")
-			endDate := event.EndTime.Format("2006-01-02")
-			duration := event.EndTime.Sub(event.StartTime)
+				// Check for duplicates by title + start time
+				eventKey := event.Title + "|" + event.StartTime.Format(time.RFC3339)
+				if seenEventKeys[eventKey] {
+					filteredDuplicates++
+					log.Printf("  [FILTERED] Duplicate (Title+Time) - Event: \"%s\" (Start: %s)",
+						event.Title, event.StartTime.Format("2006-01-02 15:04"))
+					continue
+				}
 
-			if startDate != endDate && duration >= 24*time.Hour {
-				filteredAllDay++
-				continue
-			}
-
-			if event.StartTime.Before(tomorrow) && event.EndTime.After(now) {
+				seenEventIDs[event.ID] = true
+				seenEventKeys[eventKey] = true
 				events = append(events, event)
-			} else {
-				filteredOutsideWindow++
 			}
 		}
 	}
 
 	// Log filtering summary
-	totalFiltered := filteredMissingTime + filteredCancelled + filteredAllDay + filteredOutsideWindow
+	totalFiltered := filteredMissingTime + filteredCancelled + filteredAllDay + filteredOutsideWindow + filteredDuplicates
+	log.Printf("  [SUMMARY] Total components: %d, Events: %d, Included: %d, Filtered: %d",
+		totalComponents, totalEvents, len(events), totalFiltered)
 	if totalFiltered > 0 {
-		log.Printf("  Filtered %d events: %d cancelled, %d all-day, %d outside window, %d missing time",
-			totalFiltered, filteredCancelled, filteredAllDay, filteredOutsideWindow, filteredMissingTime)
+		log.Printf("  Filtered breakdown: %d cancelled, %d all-day, %d outside window, %d missing time, %d duplicates",
+			filteredCancelled, filteredAllDay, filteredOutsideWindow, filteredMissingTime, filteredDuplicates)
 	}
 
 	return events, nil
