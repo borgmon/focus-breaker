@@ -16,6 +16,7 @@ const (
 	AlertStatusPending AlertStatus = "Pending"
 	AlertStatusAlerted AlertStatus = "Alerted"
 	AlertStatusSnoozed AlertStatus = "Snoozed"
+	AlertStatusMuted   AlertStatus = "Muted"
 )
 
 // ScheduledAlert represents a pre-computed alert for a specific event
@@ -64,6 +65,11 @@ func roundToMinute(t time.Time) time.Time {
 // UpdateEvents updates the alert store with new events from calendar sync
 // It handles additions, updates, and keeps existing alert statuses
 func (as *AlertStore) UpdateEvents(newEvents []Event, alertMinutes []int) {
+	as.UpdateEventsWithConfig(newEvents, alertMinutes, nil)
+}
+
+// UpdateEventsWithConfig updates the alert store with new events and applies quiet time config
+func (as *AlertStore) UpdateEventsWithConfig(newEvents []Event, alertMinutes []int, config *Config) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
@@ -99,7 +105,7 @@ func (as *AlertStore) UpdateEvents(newEvents []Event, alertMinutes []int) {
 		} else {
 			// New event - add it and create alerts
 			as.events[eventID] = &event
-			as.createAlertsForEvent(eventID, &event, alertMinutes)
+			as.createAlertsForEventWithConfig(eventID, &event, alertMinutes, config)
 		}
 	}
 
@@ -130,6 +136,41 @@ func (as *AlertStore) createAlertsForEvent(eventID string, event *Event, alertMi
 			ID:          uuid.New().String(),
 			EventID:     eventID,
 			Status:      AlertStatusPending,
+			AlertTime:   alertTime,
+			AlertOffset: -minutes, // Negative for pre-event alerts
+		}
+
+		alertID := generateAlertID(eventID, -minutes)
+		as.alertsById[alertID] = alert
+
+		// Add to time-based index
+		timeKey := roundToMinute(alertTime).Unix()
+		as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
+	}
+}
+
+// createAlertsForEventWithConfig creates all scheduled alerts for a new event, checking quiet time
+func (as *AlertStore) createAlertsForEventWithConfig(eventID string, event *Event, alertMinutes []int, config *Config) {
+	now := time.Now()
+
+	for _, minutes := range alertMinutes {
+		alertTime := event.StartTime.Add(-time.Duration(minutes) * time.Minute)
+
+		// Skip creating alerts in the past
+		if alertTime.Before(now) {
+			continue
+		}
+
+		// Determine initial status based on quiet time
+		status := AlertStatusPending
+		if config != nil && config.IsTimeInQuietTime(alertTime) {
+			status = AlertStatusMuted
+		}
+
+		alert := &ScheduledAlert{
+			ID:          uuid.New().String(),
+			EventID:     eventID,
+			Status:      status,
 			AlertTime:   alertTime,
 			AlertOffset: -minutes, // Negative for pre-event alerts
 		}
@@ -373,4 +414,27 @@ func (as *AlertStore) AddManualAlert(event *Event, alertTime time.Time) {
 	// Add to time-based index
 	timeKey := roundToMinute(alertTime).Unix()
 	as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
+}
+
+// UpdateMutedStatusForQuietTime checks all alerts and updates their muted status based on quiet time ranges
+func (as *AlertStore) UpdateMutedStatusForQuietTime(config *Config) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	for _, alert := range as.alertsById {
+		// Only update alerts that are currently Pending or Muted
+		if alert.Status != AlertStatusPending && alert.Status != AlertStatusMuted {
+			continue
+		}
+
+		isInQuietTime := config.IsTimeInQuietTime(alert.AlertTime)
+
+		if isInQuietTime && alert.Status == AlertStatusPending {
+			// Mark as muted
+			alert.Status = AlertStatusMuted
+		} else if !isInQuietTime && alert.Status == AlertStatusMuted {
+			// Unmute - return to pending
+			alert.Status = AlertStatusPending
+		}
+	}
 }

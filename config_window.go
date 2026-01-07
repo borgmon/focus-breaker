@@ -31,6 +31,8 @@ type ConfigWindow struct {
 	alertBeforeData       []string
 	alertBeforeContainer  *fyne.Container
 	holdTimeSelect        *widget.Select
+	quietTimeList         *widget.List
+	quietTimeData         []TimeRange
 
 	// Schedules tab
 	schedulesTable      *widget.Table
@@ -254,6 +256,7 @@ func (cw *ConfigWindow) getConfigFromUI() *Config {
 		NotifyUnaccepted: cw.notifyUnacceptedCheck.Checked,
 		AlertBeforeMin:   alertBeforeMin,
 		HoldTimeSeconds:  holdTimeSeconds,
+		QuietTimeRanges:  cw.quietTimeData,
 	}
 }
 

@@ -56,6 +56,10 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 		}
 	}
 
+	// Initialize quiet time data from config
+	cw.quietTimeData = make([]TimeRange, len(cw.config.QuietTimeRanges))
+	copy(cw.quietTimeData, cw.config.QuietTimeRanges)
+
 	// Track selected item index
 	var selectedIndex int = -1
 
@@ -179,6 +183,118 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 	holdTimeHelp := widget.NewLabel("How long to hold Close and Snooze buttons to activate")
 	holdTimeHelp.Importance = widget.MediumImportance
 
+	// Create quiet time UI
+	var selectedQuietIndex int = -1
+
+	cw.quietTimeList = widget.NewList(
+		func() int {
+			return len(cw.quietTimeData)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("template")
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			tr := cw.quietTimeData[i]
+			timeStr := fmt.Sprintf("%02d:%02d - %02d:%02d", tr.StartHour, tr.StartMinute, tr.EndHour, tr.EndMinute)
+			o.(*widget.Label).SetText(timeStr)
+		})
+
+	cw.quietTimeList.OnSelected = func(id widget.ListItemID) {
+		selectedQuietIndex = id
+	}
+
+	// Create time entry widgets for adding quiet times
+	startHourEntry := widget.NewEntry()
+	startHourEntry.SetPlaceHolder("HH")
+	startMinuteEntry := widget.NewEntry()
+	startMinuteEntry.SetPlaceHolder("MM")
+	endHourEntry := widget.NewEntry()
+	endHourEntry.SetPlaceHolder("HH")
+	endMinuteEntry := widget.NewEntry()
+	endMinuteEntry.SetPlaceHolder("MM")
+
+	// Plus button to add new quiet time
+	quietPlusButton := widget.NewButton("", func() {
+		startHour, err1 := strconv.Atoi(startHourEntry.Text)
+		startMinute, err2 := strconv.Atoi(startMinuteEntry.Text)
+		endHour, err3 := strconv.Atoi(endHourEntry.Text)
+		endMinute, err4 := strconv.Atoi(endMinuteEntry.Text)
+
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+			dialog.ShowInformation("Invalid Input", "Please enter valid numbers for all time fields.", cw.window)
+			return
+		}
+
+		if startHour < 0 || startHour > 23 || endHour < 0 || endHour > 23 {
+			dialog.ShowInformation("Invalid Hour", "Hours must be between 0 and 23.", cw.window)
+			return
+		}
+
+		if startMinute < 0 || startMinute > 59 || endMinute < 0 || endMinute > 59 {
+			dialog.ShowInformation("Invalid Minute", "Minutes must be between 0 and 59.", cw.window)
+			return
+		}
+
+		newRange := TimeRange{
+			StartHour:   startHour,
+			StartMinute: startMinute,
+			EndHour:     endHour,
+			EndMinute:   endMinute,
+		}
+
+		cw.quietTimeData = append(cw.quietTimeData, newRange)
+		cw.quietTimeList.Refresh()
+		startHourEntry.SetText("")
+		startMinuteEntry.SetText("")
+		endHourEntry.SetText("")
+		endMinuteEntry.SetText("")
+		cw.markChanged()
+	})
+	quietPlusButton.Icon = theme.ContentAddIcon()
+
+	// Minus button to remove selected quiet time
+	quietMinusButton := widget.NewButton("", func() {
+		if selectedQuietIndex >= 0 && selectedQuietIndex < len(cw.quietTimeData) {
+			cw.quietTimeData = append(cw.quietTimeData[:selectedQuietIndex], cw.quietTimeData[selectedQuietIndex+1:]...)
+			cw.quietTimeList.UnselectAll()
+			selectedQuietIndex = -1
+			cw.quietTimeList.Refresh()
+			cw.markChanged()
+		}
+	})
+	quietMinusButton.Icon = theme.ContentRemoveIcon()
+
+	quietTimeInputs := container.NewHBox(
+		widget.NewLabel("From:"),
+		startHourEntry,
+		widget.NewLabel(":"),
+		startMinuteEntry,
+		widget.NewLabel("To:"),
+		endHourEntry,
+		widget.NewLabel(":"),
+		endMinuteEntry,
+		quietPlusButton,
+		quietMinusButton,
+	)
+
+	quietListScroll := container.NewScroll(cw.quietTimeList)
+	quietListScroll.SetMinSize(fyne.NewSize(0, 100))
+
+	quietListWithBorder := container.NewBorder(
+		widget.NewSeparator(),
+		widget.NewSeparator(),
+		widget.NewSeparator(),
+		widget.NewSeparator(),
+		quietListScroll,
+	)
+
+	quietTimeContainer := container.NewVBox(quietListWithBorder, quietTimeInputs)
+
+	quietTimeLabel := widget.NewLabel("Quiet Time:")
+	quietTimeHelp := widget.NewLabel("Alerts will not be shown during these time ranges (24-hour format)")
+	quietTimeHelp.Wrapping = fyne.TextWrapWord
+	quietTimeHelp.Importance = widget.MediumImportance
+
 	// Wrap snooze select and checkbox to control their height
 	snoozeContainer := container.NewVBox(cw.snoozeTimeSelect)
 	notifyContainer := container.NewVBox(cw.notifyUnacceptedCheck)
@@ -197,6 +313,9 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 
 		container.NewVBox(holdTimeLabel, holdTimeHelp),
 		holdTimeContainer,
+
+		container.NewVBox(quietTimeLabel, quietTimeHelp),
+		quietTimeContainer,
 	)
 
 	content := container.NewVBox(

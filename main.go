@@ -71,6 +71,9 @@ func (fb *FocusBreaker) showConfigWindow() {
 		fb.config = newConfig
 		saveConfig(fb.app, fb.config)
 
+		// Update muted status for all alerts based on new quiet time settings
+		fb.alertStore.UpdateMutedStatusForQuietTime(fb.config)
+
 		fb.restartBackgroundSync()
 
 		if !fb.config.NeedsConfiguration() {
@@ -134,7 +137,7 @@ func (fb *FocusBreaker) syncEvents() {
 	log.Printf("Updating alert store with %d total events (alert offset: %d minutes)",
 		len(allEvents), alertMinutes)
 
-	fb.alertStore.UpdateEvents(allEvents, alertMinutes)
+	fb.alertStore.UpdateEventsWithConfig(allEvents, alertMinutes, fb.config)
 	log.Printf("Alert store updated successfully")
 
 	// Update system tray menu with new events
@@ -189,6 +192,12 @@ func (fb *FocusBreaker) checkAlerts() {
 	alerts := fb.alertStore.GetAlertsForCurrentMinute(fb.config.NotifyUnaccepted)
 
 	for _, alert := range alerts {
+		// Skip muted alerts - they should not be shown
+		if alert.Status == AlertStatusMuted {
+			log.Printf("Skipping muted alert for event: %s", alert.EventID)
+			continue
+		}
+
 		fb.showAlert(alert)
 	}
 }

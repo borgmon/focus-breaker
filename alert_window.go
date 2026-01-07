@@ -88,9 +88,15 @@ func (aw *AlertWindow) buildUI() {
 	timeLabel := widget.NewLabel(timeInfo)
 	timeLabel.Alignment = fyne.TextAlignCenter
 
-	description := widget.NewLabel(aw.event.Description)
-	description.Wrapping = fyne.TextWrapWord
-	description.Alignment = fyne.TextAlignCenter
+	// Use RichText with markdown for description
+	var description fyne.CanvasObject
+	if aw.event.Description != "" {
+		richText := widget.NewRichTextFromMarkdown(aw.event.Description)
+		richText.Wrapping = fyne.TextWrapWord
+		description = richText
+	} else {
+		description = widget.NewLabel("")
+	}
 
 	var linkButton *widget.Button
 	if aw.event.MeetingLink != "" {
@@ -98,6 +104,14 @@ func (aw *AlertWindow) buildUI() {
 			if u, err := url.Parse(aw.event.MeetingLink); err == nil {
 				fyne.CurrentApp().OpenURL(u)
 			}
+			// Stop audio and close the alert window
+			if aw.audioPlayer != nil {
+				aw.audioPlayer.Stop()
+			}
+			if aw.onClose != nil {
+				aw.onClose()
+			}
+			aw.window.Close()
 		})
 		linkButton.Importance = widget.HighImportance
 	}
