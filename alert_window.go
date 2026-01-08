@@ -10,13 +10,17 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/audio"
+	"github.com/borgmon/focus-breaker/pkg/models"
+	"github.com/borgmon/focus-breaker/pkg/platform"
+	"github.com/borgmon/focus-breaker/pkg/ui/components"
 	"golang.design/x/hotkey"
 )
 
 type AlertWindow struct {
 	window          fyne.Window
 	app             fyne.App
-	event           Event
+	event           models.Event
 	snoozeMinutes   int
 	holdTimeSeconds int
 	onClose         func()
@@ -28,12 +32,12 @@ type AlertWindow struct {
 	snoozeTicker   *time.Ticker
 	closeHeld      bool
 	snoozeHeld     bool
-	audioPlayer    *AudioPlayer
+	audioPlayer    *audio.Player
 	cmdQHotkey     *hotkey.Hotkey
 	stopMonitoring chan struct{}
 }
 
-func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, holdTimeSeconds int, onClose, onSnooze func()) *AlertWindow {
+func NewAlertWindow(app fyne.App, event models.Event, snoozeMinutes int, holdTimeSeconds int, onClose, onSnooze func()) *AlertWindow {
 	aw := &AlertWindow{
 		app:             app,
 		event:           event,
@@ -45,7 +49,7 @@ func NewAlertWindow(app fyne.App, event Event, snoozeMinutes int, holdTimeSecond
 	}
 
 	// Play alarm sound
-	aw.audioPlayer = playAlarmSound()
+	aw.audioPlayer = audio.PlayAlarmSound(resourceAlarmWav.Content())
 
 	// Create window and build UI on the main Fyne thread
 	fyne.Do(func() {
@@ -88,12 +92,13 @@ func (aw *AlertWindow) buildUI() {
 	timeLabel := widget.NewLabel(timeInfo)
 	timeLabel.Alignment = fyne.TextAlignCenter
 
-	// Use RichText with markdown for description
+	// Use Label for description to properly render newlines
 	var description fyne.CanvasObject
 	if aw.event.Description != "" {
-		richText := widget.NewRichTextFromMarkdown(aw.event.Description)
-		richText.Wrapping = fyne.TextWrapWord
-		description = richText
+		descLabel := widget.NewLabel(aw.event.Description)
+		descLabel.Wrapping = fyne.TextWrapWord
+		descLabel.Alignment = fyne.TextAlignLeading
+		description = descLabel
 	} else {
 		description = widget.NewLabel("")
 	}
@@ -116,8 +121,8 @@ func (aw *AlertWindow) buildUI() {
 		linkButton.Importance = widget.HighImportance
 	}
 
-	var closeButton *HoldButton
-	closeButton = NewHoldButton(fmt.Sprintf("Close (Hold %ds)", aw.holdTimeSeconds), func() {
+	var closeButton *components.HoldButton
+	closeButton = components.NewHoldButton(fmt.Sprintf("Close (Hold %ds)", aw.holdTimeSeconds), func() {
 		aw.startCloseProgress(closeButton)
 	}, func() {
 		aw.stopCloseProgress(closeButton)
@@ -139,8 +144,8 @@ func (aw *AlertWindow) buildUI() {
 	// Button row
 	buttonRow := container.NewHBox()
 	if aw.snoozeMinutes > 0 {
-		var snoozeButton *HoldButton
-		snoozeButton = NewHoldButton(fmt.Sprintf("Snooze %dm (Hold %ds)", aw.snoozeMinutes, aw.holdTimeSeconds), func() {
+		var snoozeButton *components.HoldButton
+		snoozeButton = components.NewHoldButton(fmt.Sprintf("Snooze %dm (Hold %ds)", aw.snoozeMinutes, aw.holdTimeSeconds), func() {
 			aw.startSnoozeProgress(snoozeButton)
 		}, func() {
 			aw.stopSnoozeProgress(snoozeButton)
@@ -160,7 +165,7 @@ func (aw *AlertWindow) buildUI() {
 	aw.window.SetContent(container.NewPadded(centered))
 }
 
-func (aw *AlertWindow) startCloseProgress(button *HoldButton) {
+func (aw *AlertWindow) startCloseProgress(button *components.HoldButton) {
 	if aw.closeHeld {
 		return
 	}
@@ -204,7 +209,7 @@ func (aw *AlertWindow) startCloseProgress(button *HoldButton) {
 	}()
 }
 
-func (aw *AlertWindow) stopCloseProgress(button *HoldButton) {
+func (aw *AlertWindow) stopCloseProgress(button *components.HoldButton) {
 	aw.closeHeld = false
 	if aw.closeTicker != nil {
 		aw.closeTicker.Stop()
@@ -215,7 +220,7 @@ func (aw *AlertWindow) stopCloseProgress(button *HoldButton) {
 	})
 }
 
-func (aw *AlertWindow) startSnoozeProgress(button *HoldButton) {
+func (aw *AlertWindow) startSnoozeProgress(button *components.HoldButton) {
 	if aw.snoozeHeld {
 		return
 	}
@@ -259,7 +264,7 @@ func (aw *AlertWindow) startSnoozeProgress(button *HoldButton) {
 	}()
 }
 
-func (aw *AlertWindow) stopSnoozeProgress(button *HoldButton) {
+func (aw *AlertWindow) stopSnoozeProgress(button *components.HoldButton) {
 	aw.snoozeHeld = false
 	if aw.snoozeTicker != nil {
 		aw.snoozeTicker.Stop()
@@ -314,8 +319,8 @@ func (aw *AlertWindow) setupFocusMonitoring() {
 					return
 				}
 
-				// Check if app is active using macOS native API
-				isFocused := isAppActive()
+				// Check if app is active using platform API
+				isFocused := platform.IsAppActive()
 
 				// Detect focus change
 				if wasFocused && !isFocused {
@@ -336,7 +341,7 @@ func (aw *AlertWindow) setupFocusMonitoring() {
 				// If app is not focused, bring it to front
 				if !isFocused {
 					log.Println("Alert window not active - bringing to front")
-					activateApp()
+					platform.ActivateApp()
 					fyne.Do(func() {
 						if aw.window != nil {
 							aw.window.Show()

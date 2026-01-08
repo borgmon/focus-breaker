@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/models"
 )
 
 func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
@@ -65,7 +66,7 @@ func (cw *ConfigWindow) buildSchedulesTab() fyne.CanvasObject {
 
 			// Format status
 			status := string(schedule.Status)
-			if schedule.Status == AlertStatusSnoozed {
+			if schedule.Status == models.AlertStatusSnoozed {
 				status = fmt.Sprintf("Snoozed until %s", schedule.AlertTime.Format("3:04 PM"))
 			}
 
@@ -277,9 +278,9 @@ func (cw *ConfigWindow) updateSchedulesColumnWidths(table *widget.Table) {
 	}
 }
 
-func (cw *ConfigWindow) getScheduledAlerts() []*ScheduledAlert {
+func (cw *ConfigWindow) getScheduledAlerts() []*models.ScheduledAlert {
 	if cw.alertStore == nil {
-		return []*ScheduledAlert{}
+		return []*models.ScheduledAlert{}
 	}
 
 	// Get all scheduled alerts directly from eventstore (already sorted by alert time)

@@ -11,12 +11,13 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/models"
 	"github.com/google/uuid"
 )
 
 func (cw *ConfigWindow) buildCalendarTab() fyne.CanvasObject {
 	// Initialize iCal sources data from config
-	cw.icalSourcesData = []ICalSource{}
+	cw.icalSourcesData = []models.ICalSource{}
 	for _, source := range cw.config.ICalSources {
 		cw.icalSourcesData = append(cw.icalSourcesData, source)
 	}
@@ -112,7 +113,7 @@ func (cw *ConfigWindow) buildCalendarTab() fyne.CanvasObject {
 			}
 
 			// Add the new source with generated UUID
-			cw.icalSourcesData = append(cw.icalSourcesData, ICalSource{
+			cw.icalSourcesData = append(cw.icalSourcesData, models.ICalSource{
 				ID:   uuid.New().String(),
 				Name: nameEntry.Text,
 				URL:  urlEntry.Text,

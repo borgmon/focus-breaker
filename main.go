@@ -6,12 +6,16 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"github.com/borgmon/focus-breaker/pkg/calendar"
+	"github.com/borgmon/focus-breaker/pkg/models"
+	"github.com/borgmon/focus-breaker/pkg/platform"
+	"github.com/borgmon/focus-breaker/pkg/store"
 )
 
 type FocusBreaker struct {
 	app          fyne.App
-	config       *Config
-	alertStore   *AlertStore
+	config       *models.Config
+	alertStore   *store.AlertStore
 	syncTicker   *time.Ticker
 	alertTicker  *time.Ticker
 	configWindow *ConfigWindow
@@ -20,7 +24,7 @@ type FocusBreaker struct {
 func main() {
 	fb := &FocusBreaker{
 		app:        app.New(),
-		alertStore: NewAlertStore(),
+		alertStore: store.NewAlertStore(),
 	}
 
 	if err := fb.initialize(); err != nil {
@@ -31,14 +35,15 @@ func main() {
 }
 
 func (fb *FocusBreaker) initialize() error {
-	fb.config = loadConfig(fb.app)
+	configStore := store.NewConfigStore(fb.app)
+	fb.config = configStore.Load()
 
 	// Sync autostart state with config on startup
-	if err := setupAutostart(fb.config.AutoStart); err != nil {
+	if err := platform.SetupAutostart(fb.config.AutoStart); err != nil {
 		log.Printf("Warning: failed to setup autostart: %v", err)
 	}
 
-	saveConfig(fb.app, fb.config)
+	configStore.Save(fb.config)
 
 	fb.setupSystemTray()
 	fb.startBackgroundSync() // This will sync and update the tray menu
@@ -53,7 +58,7 @@ func (fb *FocusBreaker) initialize() error {
 
 func (fb *FocusBreaker) run() {
 	fb.app.Lifecycle().SetOnStarted(func() {
-		setActivationPolicy()
+		platform.SetActivationPolicy()
 	})
 	fb.app.Run()
 }
@@ -67,9 +72,10 @@ func (fb *FocusBreaker) showConfigWindow() {
 	}
 
 	// Create new config window
-	fb.configWindow = NewConfigWindow(fb.app, fb.config, fb.alertStore, func(newConfig *Config) {
+	fb.configWindow = NewConfigWindow(fb.app, fb.config, fb.alertStore, func(newConfig *models.Config) {
 		fb.config = newConfig
-		saveConfig(fb.app, fb.config)
+		configStore := store.NewConfigStore(fb.app)
+		configStore.Save(fb.config)
 
 		// Update muted status for all alerts based on new quiet time settings
 		fb.alertStore.UpdateMutedStatusForQuietTime(fb.config)
@@ -104,7 +110,7 @@ func (fb *FocusBreaker) syncEvents() {
 	log.Printf("Found %d iCal source(s) to sync", len(fb.config.ICalSources))
 
 	// Collect events from all iCal sources
-	allEvents := []Event{}
+	allEvents := []models.Event{}
 	successfulSources := 0
 	failedSources := 0
 
@@ -118,7 +124,7 @@ func (fb *FocusBreaker) syncEvents() {
 		}
 
 		log.Printf("Fetching events from '%s' (%s)", source.Name, source.URL)
-		events, err := source.FetchEvents()
+		events, err := calendar.FetchEvents(source)
 		if err != nil {
 			log.Printf("Error fetching iCal source '%s' (%s): %v", source.Name, source.URL, err)
 			failedSources++
@@ -193,7 +199,7 @@ func (fb *FocusBreaker) checkAlerts() {
 
 	for _, alert := range alerts {
 		// Skip muted alerts - they should not be shown
-		if alert.Status == AlertStatusMuted {
+		if alert.Status == models.AlertStatusMuted {
 			log.Printf("Skipping muted alert for event: %s", alert.EventID)
 			continue
 		}
@@ -202,7 +208,7 @@ func (fb *FocusBreaker) checkAlerts() {
 	}
 }
 
-func (fb *FocusBreaker) showAlert(alert *ScheduledAlert) {
+func (fb *FocusBreaker) showAlert(alert *models.ScheduledAlert) {
 	// Get the actual event from the store
 	event := fb.alertStore.GetEvent(alert.EventID)
 	if event == nil {
@@ -217,13 +223,13 @@ func (fb *FocusBreaker) showAlert(alert *ScheduledAlert) {
 		fb.config.HoldTimeSeconds,
 		func() {
 			// Mark alert as alerted (closed/dismissed)
-			fb.alertStore.MarkAlertStatus(alert.EventID, alert.AlertOffset, AlertStatusAlerted, nil)
+			fb.alertStore.MarkAlertStatus(alert.EventID, alert.AlertOffset, models.AlertStatusAlerted, nil)
 			log.Printf("Alert closed for event: %s", event.Title)
 		},
 		func() {
 			// Mark alert as snoozed and schedule new alert
 			snoozeUntil := time.Now().Add(time.Duration(fb.config.SnoozeTime) * time.Minute)
-			fb.alertStore.MarkAlertStatus(alert.EventID, alert.AlertOffset, AlertStatusSnoozed, &snoozeUntil)
+			fb.alertStore.MarkAlertStatus(alert.EventID, alert.AlertOffset, models.AlertStatusSnoozed, &snoozeUntil)
 			log.Printf("Alert snoozed for event: %s until %s", event.Title, snoozeUntil.Format(time.RFC3339))
 		},
 	)

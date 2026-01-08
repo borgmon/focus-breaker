@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"log"
@@ -8,7 +8,8 @@ import (
 	"github.com/emersion/go-autostart"
 )
 
-func setupAutostart(enable bool) error {
+// SetupAutostart configures application autostart on system boot
+func SetupAutostart(enable bool) error {
 	// Get the executable path
 	execPath, err := os.Executable()
 	if err != nil {

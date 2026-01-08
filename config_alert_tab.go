@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/models"
 )
 
 func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
@@ -57,7 +58,7 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 	}
 
 	// Initialize quiet time data from config
-	cw.quietTimeData = make([]TimeRange, len(cw.config.QuietTimeRanges))
+	cw.quietTimeData = make([]models.TimeRange, len(cw.config.QuietTimeRanges))
 	copy(cw.quietTimeData, cw.config.QuietTimeRanges)
 
 	// Track selected item index
@@ -235,7 +236,7 @@ func (cw *ConfigWindow) buildAlertTab() fyne.CanvasObject {
 			return
 		}
 
-		newRange := TimeRange{
+		newRange := models.TimeRange{
 			StartHour:   startHour,
 			StartMinute: startMinute,
 			EndHour:     endHour,

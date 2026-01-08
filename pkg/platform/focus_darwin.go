@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package platform
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -19,11 +19,11 @@ void activateApp() {
 import "C"
 
 // IsAppActive returns true if the application is currently active/focused
-func isAppActive() bool {
+func IsAppActive() bool {
 	return C.isAppActive() == 1
 }
 
 // ActivateApp brings the application to the front
-func activateApp() {
+func ActivateApp() {
 	C.activateApp()
 }

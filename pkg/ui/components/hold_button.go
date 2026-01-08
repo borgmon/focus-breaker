@@ -1,4 +1,4 @@
-package main
+package components
 
 import (
 	"image/color"
@@ -22,6 +22,7 @@ type HoldButton struct {
 	progress float64
 }
 
+// NewHoldButton creates a new HoldButton
 func NewHoldButton(text string, onHoldStart, onHoldEnd func()) *HoldButton {
 	b := &HoldButton{
 		Text:        text,
@@ -32,6 +33,7 @@ func NewHoldButton(text string, onHoldStart, onHoldEnd func()) *HoldButton {
 	return b
 }
 
+// CreateRenderer implements fyne.Widget
 func (b *HoldButton) CreateRenderer() fyne.WidgetRenderer {
 	text := canvas.NewText(b.Text, theme.ForegroundColor())
 	text.Alignment = fyne.TextAlignCenter
@@ -47,26 +49,28 @@ func (b *HoldButton) CreateRenderer() fyne.WidgetRenderer {
 	}
 }
 
+// SetProgress updates the progress bar
 func (b *HoldButton) SetProgress(progress float64) {
 	b.progress = progress
 	b.Refresh()
 }
 
-func (b *HoldButton) Tapped(pe *fyne.PointEvent) {
-	// Tapped fires on release, we don't use it for hold behavior
-}
+// Tapped implements fyne.Tappable
+func (b *HoldButton) Tapped(*fyne.PointEvent) {}
 
-func (b *HoldButton) TappedSecondary(*fyne.PointEvent) {
-}
+// TappedSecondary implements fyne.SecondaryTappable
+func (b *HoldButton) TappedSecondary(*fyne.PointEvent) {}
 
-func (b *HoldButton) MouseIn(me *desktop.MouseEvent) {
+// MouseIn implements desktop.Hoverable
+func (b *HoldButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
 	b.Refresh()
 }
 
-func (b *HoldButton) MouseMoved(*desktop.MouseEvent) {
-}
+// MouseMoved implements desktop.Hoverable
+func (b *HoldButton) MouseMoved(*desktop.MouseEvent) {}
 
+// MouseOut implements desktop.Hoverable
 func (b *HoldButton) MouseOut() {
 	b.hovered = false
 	// Stop holding when mouse leaves
@@ -79,7 +83,8 @@ func (b *HoldButton) MouseOut() {
 	b.Refresh()
 }
 
-func (b *HoldButton) MouseDown(me *desktop.MouseEvent) {
+// MouseDown implements desktop.Mouseable
+func (b *HoldButton) MouseDown(*desktop.MouseEvent) {
 	if !b.holding {
 		b.holding = true
 		b.Refresh()
@@ -89,7 +94,8 @@ func (b *HoldButton) MouseDown(me *desktop.MouseEvent) {
 	}
 }
 
-func (b *HoldButton) MouseUp(me *desktop.MouseEvent) {
+// MouseUp implements desktop.Mouseable
+func (b *HoldButton) MouseUp(*desktop.MouseEvent) {
 	if b.holding {
 		b.holding = false
 		b.Refresh()
@@ -121,7 +127,7 @@ func (r *holdButtonRenderer) MinSize() fyne.Size {
 	minWidth := textSize.Width + theme.Padding()*4
 	minHeight := textSize.Height + theme.Padding()*2
 
-	// Set minimum button size to be larger for better usability
+	// Set minimum button size for better usability
 	if minWidth < 300 {
 		minWidth = 300
 	}
@@ -156,8 +162,7 @@ func (r *holdButtonRenderer) Objects() []fyne.CanvasObject {
 	return []fyne.CanvasObject{r.bg, r.progressBar, r.text}
 }
 
-func (r *holdButtonRenderer) Destroy() {
-}
+func (r *holdButtonRenderer) Destroy() {}
 
 func (r *holdButtonRenderer) BackgroundColor() color.Color {
 	return theme.ButtonColor()

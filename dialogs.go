@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/models"
 )
 
 func (cw *ConfigWindow) showAddAlarmDialog() {
@@ -51,7 +52,7 @@ func (cw *ConfigWindow) showAddAlarmDialog() {
 		alarmTime := time.Now().Add(time.Duration(totalMinutes) * time.Minute)
 
 		// Create a manual event
-		event := &Event{
+		event := &models.Event{
 			ID:          fmt.Sprintf("manual-%s", time.Now().Format("20060102-150405")),
 			Title:       fmt.Sprintf("Manual Alarm (%dh %dm)", hours, mins),
 			Description: "Manually created countdown alarm",
@@ -86,7 +87,7 @@ func (cw *ConfigWindow) showDeleteAlertDialog() {
 	schedule := cw.schedulesData[cw.selectedScheduleRow]
 
 	// Remove the event (which also removes all associated alerts)
-	cw.alertStore.removeEvent(schedule.EventID)
+	cw.alertStore.RemoveEvent(schedule.EventID)
 
 	// Reset selection
 	cw.selectedScheduleRow = -1

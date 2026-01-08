@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"bytes"
@@ -18,16 +18,23 @@ var (
 	audioCtxReady      bool
 )
 
-// AudioPlayer manages alarm sound playback with cancellation support
-type AudioPlayer struct {
+// Player manages alarm sound playback with cancellation support
+type Player struct {
 	stopChan chan struct{}
 	player   *oto.Player
 	stopped  bool
 	mu       sync.Mutex
 }
 
-// initAudioContext initializes the global audio context once
-func initAudioContext(format *wavFormat) {
+// wavFormat holds WAV file format information
+type wavFormat struct {
+	SampleRate int
+	Channels   int
+	BitDepth   int
+}
+
+// InitAudioContext initializes the global audio context once
+func InitAudioContext(format *wavFormat) {
 	globalAudioCtxOnce.Do(func() {
 		op := &oto.NewContextOptions{
 			SampleRate:   format.SampleRate,
@@ -50,11 +57,8 @@ func initAudioContext(format *wavFormat) {
 	})
 }
 
-// playAlarmSound plays the alarm.wav file from bundled resources and returns an AudioPlayer
-func playAlarmSound() *AudioPlayer {
-	// Use the bundled resource instead of reading from filesystem
-	wavData := resourceAlarmWav.Content()
-
+// PlayAlarmSound plays the provided WAV audio data and returns a Player for control
+func PlayAlarmSound(wavData []byte) *Player {
 	// Parse WAV header to get audio format
 	format, audioData, err := parseWAV(wavData)
 	if err != nil {
@@ -63,87 +67,81 @@ func playAlarmSound() *AudioPlayer {
 	}
 
 	// Initialize global audio context if not already done
-	initAudioContext(format)
+	InitAudioContext(format)
 
 	if !audioCtxReady || globalAudioCtx == nil {
 		log.Printf("Audio context not ready")
 		return nil
 	}
 
-	ap := &AudioPlayer{
+	p := &Player{
 		stopChan: make(chan struct{}),
 	}
 
 	// Play the sound in a goroutine so it doesn't block
-	go func() {
-		// Loop the alarm sound until stopped
-		for {
-			// Create a new player for each loop iteration
-			ap.player = globalAudioCtx.NewPlayer(bytes.NewReader(audioData))
+	go p.playLoop(audioData)
 
-			// Play starts playing the sound and returns without waiting
-			ap.player.Play()
+	return p
+}
 
-			// Wait for the sound to finish playing or stop signal
-			for ap.player.IsPlaying() {
-				select {
-				case <-ap.stopChan:
-					// Stop requested, pause and cleanup then exit
-					ap.player.Pause()
-					ap.player.Close()
-					log.Println("Audio player closed")
-					return
-				case <-time.After(10 * time.Millisecond):
-					// Continue checking
-				}
-			}
+func (p *Player) playLoop(audioData []byte) {
+	// Loop the alarm sound until stopped
+	for {
+		// Create a new player for each loop iteration
+		p.player = globalAudioCtx.NewPlayer(bytes.NewReader(audioData))
 
-			// Close the player before creating a new one
-			err = ap.player.Close()
-			if err != nil {
-				log.Printf("Failed to close audio player: %v", err)
-			}
+		// Play starts playing the sound and returns without waiting
+		p.player.Play()
 
-			// Check if stop was requested between loops
+		// Wait for the sound to finish playing or stop signal
+		for p.player.IsPlaying() {
 			select {
-			case <-ap.stopChan:
+			case <-p.stopChan:
+				// Stop requested, pause and cleanup then exit
+				p.player.Pause()
+				p.player.Close()
+				log.Println("Audio player closed")
 				return
-			default:
-				// Continue looping
+			case <-time.After(10 * time.Millisecond):
+				// Continue checking
 			}
 		}
-	}()
 
-	return ap
+		// Close the player before creating a new one
+		if err := p.player.Close(); err != nil {
+			log.Printf("Failed to close audio player: %v", err)
+		}
+
+		// Check if stop was requested between loops
+		select {
+		case <-p.stopChan:
+			return
+		default:
+			// Continue looping
+		}
+	}
 }
 
 // Stop stops the audio playback
-func (ap *AudioPlayer) Stop() {
-	if ap == nil {
+func (p *Player) Stop() {
+	if p == nil {
 		return
 	}
 
-	ap.mu.Lock()
-	defer ap.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	if !ap.stopped {
-		ap.stopped = true
-		close(ap.stopChan)
+	if !p.stopped {
+		p.stopped = true
+		close(p.stopChan)
 
 		// Also try to pause the current player if it exists
-		if ap.player != nil {
-			ap.player.Pause()
+		if p.player != nil {
+			p.player.Pause()
 		}
 
 		log.Println("Audio playback stopped")
 	}
-}
-
-// wavFormat holds WAV file format information
-type wavFormat struct {
-	SampleRate int
-	Channels   int
-	BitDepth   int
 }
 
 // parseWAV parses a WAV file and returns the format and audio data

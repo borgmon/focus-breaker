@@ -9,18 +9,21 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"github.com/borgmon/focus-breaker/pkg/models"
+	"github.com/borgmon/focus-breaker/pkg/platform"
+	"github.com/borgmon/focus-breaker/pkg/store"
 )
 
 type ConfigWindow struct {
 	window fyne.Window
 	app    fyne.App
-	config *Config
-	onSave func(*Config)
+	config *models.Config
+	onSave func(*models.Config)
 
 	// Calendar tab
 	autoStartCheck       *widget.Check
 	icalSourcesList      *widget.List
-	icalSourcesData      []ICalSource
+	icalSourcesData      []models.ICalSource
 	updateIntervalSelect *widget.Select
 	syncNowButton        *widget.Button
 
@@ -32,14 +35,14 @@ type ConfigWindow struct {
 	alertBeforeContainer  *fyne.Container
 	holdTimeSelect        *widget.Select
 	quietTimeList         *widget.List
-	quietTimeData         []TimeRange
+	quietTimeData         []models.TimeRange
 
 	// Schedules tab
 	schedulesTable      *widget.Table
-	schedulesData       []*ScheduledAlert
+	schedulesData       []*models.ScheduledAlert
 	schedulesContainer  *fyne.Container
 	selectedScheduleRow int
-	alertStore          *AlertStore
+	alertStore          *store.AlertStore
 
 	// UI state
 	hasUnsavedChanges bool
@@ -47,7 +50,7 @@ type ConfigWindow struct {
 	saveButton        *widget.Button
 }
 
-func NewConfigWindow(app fyne.App, config *Config, alertStore *AlertStore, onSave func(*Config)) *ConfigWindow {
+func NewConfigWindow(app fyne.App, config *models.Config, alertStore *store.AlertStore, onSave func(*models.Config)) *ConfigWindow {
 	cw := &ConfigWindow{
 		app:        app,
 		config:     config,
@@ -83,7 +86,7 @@ func (cw *ConfigWindow) buildUI() {
 		newConfig := cw.getConfigFromUI()
 		go func() {
 			// Handle autostart setting
-			if err := setupAutostart(newConfig.AutoStart); err != nil {
+			if err := platform.SetupAutostart(newConfig.AutoStart); err != nil {
 				log.Printf("Error setting autostart: %v", err)
 				fyne.Do(func() {
 					cw.saveStatusLabel.SetText("Error: Failed to set autostart")
@@ -94,7 +97,8 @@ func (cw *ConfigWindow) buildUI() {
 				return
 			}
 
-			saveConfig(cw.app, newConfig)
+			configStore := store.NewConfigStore(cw.app)
+			configStore.Save(newConfig)
 			if cw.onSave != nil {
 				cw.onSave(newConfig)
 			}
@@ -124,7 +128,7 @@ func (cw *ConfigWindow) buildUI() {
 	cw.saveButton.Disable() // Initially disabled until changes are made
 
 	previewButton := widget.NewButton("Preview Alert", func() {
-		sampleEvent := Event{
+		sampleEvent := models.Event{
 			Title:       "Sample Meeting",
 			Description: "This is a preview of how meeting alerts will appear. You can customize the alert timing and snooze settings in the Alert tab.",
 			StartTime:   time.Now(),
@@ -207,7 +211,7 @@ func (cw *ConfigWindow) buildUI() {
 	})
 }
 
-func (cw *ConfigWindow) getConfigFromUI() *Config {
+func (cw *ConfigWindow) getConfigFromUI() *models.Config {
 	updateInterval := 30
 	if cw.updateIntervalSelect.Selected != "" {
 		// Parse "15 min" -> 15
@@ -248,7 +252,7 @@ func (cw *ConfigWindow) getConfigFromUI() *Config {
 		}
 	}
 
-	return &Config{
+	return &models.Config{
 		AutoStart:        cw.autoStartCheck.Checked,
 		ICalSources:      cw.icalSourcesData,
 		UpdateInterval:   updateInterval,

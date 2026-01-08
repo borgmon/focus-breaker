@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"fmt"
@@ -6,49 +6,31 @@ import (
 	"sync"
 	"time"
 
+	"github.com/borgmon/focus-breaker/pkg/models"
 	"github.com/google/uuid"
 )
-
-// AlertStatus tracks the status of an individual alert
-type AlertStatus string
-
-const (
-	AlertStatusPending AlertStatus = "Pending"
-	AlertStatusAlerted AlertStatus = "Alerted"
-	AlertStatusSnoozed AlertStatus = "Snoozed"
-	AlertStatusMuted   AlertStatus = "Muted"
-)
-
-// ScheduledAlert represents a pre-computed alert for a specific event
-type ScheduledAlert struct {
-	ID          string      // Unique identifier for the alert (UUID)
-	EventID     string      // Event ID (stable ID, not original iCal UID)
-	Status      AlertStatus // Alert status (Pending, Alerted, Snoozed)
-	AlertTime   time.Time   // When this alert should fire
-	AlertOffset int         // negative = minutes before event start, positive = minutes from snooze time
-}
 
 // AlertStore manages events and their scheduled alerts
 type AlertStore struct {
 	mu sync.RWMutex
 
 	// Map of event ID to Event
-	events map[string]*Event
+	events map[string]*models.Event
 
 	// Map of timestamp (minute precision) to list of scheduled alerts
 	// Key format: Unix timestamp rounded to minute
-	alertsByTime map[int64][]*ScheduledAlert
+	alertsByTime map[int64][]*models.ScheduledAlert
 
 	// Map of alert ID to scheduled alert for quick lookup
-	// Alert ID format: "eventID-minutesBefore"
-	alertsById map[string]*ScheduledAlert
+	alertsById map[string]*models.ScheduledAlert
 }
 
+// NewAlertStore creates a new AlertStore instance
 func NewAlertStore() *AlertStore {
 	return &AlertStore{
-		events:       make(map[string]*Event),
-		alertsByTime: make(map[int64][]*ScheduledAlert),
-		alertsById:   make(map[string]*ScheduledAlert),
+		events:       make(map[string]*models.Event),
+		alertsByTime: make(map[int64][]*models.ScheduledAlert),
+		alertsById:   make(map[string]*models.ScheduledAlert),
 	}
 }
 
@@ -57,19 +39,13 @@ func generateAlertID(eventID string, alertOffset int) string {
 	return fmt.Sprintf("%s-%d", eventID, alertOffset)
 }
 
-// roundToMinute rounds a time down to the nearest minute
-func roundToMinute(t time.Time) time.Time {
-	return t.Truncate(time.Minute)
-}
-
 // UpdateEvents updates the alert store with new events from calendar sync
-// It handles additions, updates, and keeps existing alert statuses
-func (as *AlertStore) UpdateEvents(newEvents []Event, alertMinutes []int) {
+func (as *AlertStore) UpdateEvents(newEvents []models.Event, alertMinutes []int) {
 	as.UpdateEventsWithConfig(newEvents, alertMinutes, nil)
 }
 
 // UpdateEventsWithConfig updates the alert store with new events and applies quiet time config
-func (as *AlertStore) UpdateEventsWithConfig(newEvents []Event, alertMinutes []int, config *Config) {
+func (as *AlertStore) UpdateEventsWithConfig(newEvents []models.Event, alertMinutes []int, config *models.Config) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
@@ -120,37 +96,8 @@ func (as *AlertStore) UpdateEventsWithConfig(newEvents []Event, alertMinutes []i
 	as.cleanupOldAlerts(cutoffTime)
 }
 
-// createAlertsForEvent creates all scheduled alerts for a new event
-func (as *AlertStore) createAlertsForEvent(eventID string, event *Event, alertMinutes []int) {
-	now := time.Now()
-
-	for _, minutes := range alertMinutes {
-		alertTime := event.StartTime.Add(-time.Duration(minutes) * time.Minute)
-
-		// Skip creating alerts in the past
-		if alertTime.Before(now) {
-			continue
-		}
-
-		alert := &ScheduledAlert{
-			ID:          uuid.New().String(),
-			EventID:     eventID,
-			Status:      AlertStatusPending,
-			AlertTime:   alertTime,
-			AlertOffset: -minutes, // Negative for pre-event alerts
-		}
-
-		alertID := generateAlertID(eventID, -minutes)
-		as.alertsById[alertID] = alert
-
-		// Add to time-based index
-		timeKey := roundToMinute(alertTime).Unix()
-		as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
-	}
-}
-
 // createAlertsForEventWithConfig creates all scheduled alerts for a new event, checking quiet time
-func (as *AlertStore) createAlertsForEventWithConfig(eventID string, event *Event, alertMinutes []int, config *Config) {
+func (as *AlertStore) createAlertsForEventWithConfig(eventID string, event *models.Event, alertMinutes []int, config *models.Config) {
 	now := time.Now()
 
 	for _, minutes := range alertMinutes {
@@ -162,12 +109,12 @@ func (as *AlertStore) createAlertsForEventWithConfig(eventID string, event *Even
 		}
 
 		// Determine initial status based on quiet time
-		status := AlertStatusPending
+		status := models.AlertStatusPending
 		if config != nil && config.IsTimeInQuietTime(alertTime) {
-			status = AlertStatusMuted
+			status = models.AlertStatusMuted
 		}
 
-		alert := &ScheduledAlert{
+		alert := &models.ScheduledAlert{
 			ID:          uuid.New().String(),
 			EventID:     eventID,
 			Status:      status,
@@ -179,19 +126,19 @@ func (as *AlertStore) createAlertsForEventWithConfig(eventID string, event *Even
 		as.alertsById[alertID] = alert
 
 		// Add to time-based index
-		timeKey := roundToMinute(alertTime).Unix()
+		timeKey := models.RoundToMinute(alertTime).Unix()
 		as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
 	}
 }
 
 // updateAlertsForEvent updates alerts when event time changes
-func (as *AlertStore) updateAlertsForEvent(eventID string, event *Event, alertMinutes []int) {
+func (as *AlertStore) updateAlertsForEvent(eventID string, event *models.Event, alertMinutes []int) {
 	for _, minutes := range alertMinutes {
 		alertID := generateAlertID(eventID, -minutes)
 		if alert, exists := as.alertsById[alertID]; exists {
 			// Update existing alert
 			// Remove from old time slot
-			oldTimeKey := roundToMinute(alert.AlertTime).Unix()
+			oldTimeKey := models.RoundToMinute(alert.AlertTime).Unix()
 			as.removeAlertFromTimeIndex(oldTimeKey, alertID)
 
 			// Update alert time
@@ -199,7 +146,7 @@ func (as *AlertStore) updateAlertsForEvent(eventID string, event *Event, alertMi
 			// Keep existing Status (don't reset to Pending)
 
 			// Add to new time slot
-			newTimeKey := roundToMinute(alert.AlertTime).Unix()
+			newTimeKey := models.RoundToMinute(alert.AlertTime).Unix()
 			as.alertsByTime[newTimeKey] = append(as.alertsByTime[newTimeKey], alert)
 		} else {
 			// Alert doesn't exist, create new one (happens when alertMinutes config changes)
@@ -211,22 +158,21 @@ func (as *AlertStore) updateAlertsForEvent(eventID string, event *Event, alertMi
 				continue
 			}
 
-			newAlert := &ScheduledAlert{
+			newAlert := &models.ScheduledAlert{
 				ID:          uuid.New().String(),
 				EventID:     eventID,
-				Status:      AlertStatusPending,
+				Status:      models.AlertStatusPending,
 				AlertTime:   alertTime,
-				AlertOffset: -minutes, // Negative for pre-event alerts
+				AlertOffset: -minutes,
 			}
 
 			as.alertsById[alertID] = newAlert
-			timeKey := roundToMinute(alertTime).Unix()
+			timeKey := models.RoundToMinute(alertTime).Unix()
 			as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], newAlert)
 		}
 	}
 
 	// Remove alerts that are no longer in alertMinutes config
-	// Only remove negative offset alerts (pre-event), keep positive offset alerts (snoozed)
 	alertMinutesMap := make(map[int]bool)
 	for _, m := range alertMinutes {
 		alertMinutesMap[m] = true
@@ -234,8 +180,7 @@ func (as *AlertStore) updateAlertsForEvent(eventID string, event *Event, alertMi
 
 	for alertID, alert := range as.alertsById {
 		if alert.EventID == eventID && alert.AlertOffset < 0 && !alertMinutesMap[-alert.AlertOffset] {
-			// This alert's offset is no longer in config, remove it
-			timeKey := roundToMinute(alert.AlertTime).Unix()
+			timeKey := models.RoundToMinute(alert.AlertTime).Unix()
 			as.removeAlertFromTimeIndex(timeKey, alertID)
 			delete(as.alertsById, alertID)
 		}
@@ -263,16 +208,23 @@ func (as *AlertStore) removeEvent(eventID string) {
 	// Remove all alerts for this event (both pre-event and snoozed)
 	for alertID, alert := range as.alertsById {
 		if alert.EventID == eventID {
-			timeKey := roundToMinute(alert.AlertTime).Unix()
+			timeKey := models.RoundToMinute(alert.AlertTime).Unix()
 			as.removeAlertFromTimeIndex(timeKey, alertID)
 			delete(as.alertsById, alertID)
 		}
 	}
 }
 
+// RemoveEvent is the public method to remove an event
+func (as *AlertStore) RemoveEvent(eventID string) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	as.removeEvent(eventID)
+}
+
 // cleanupOldAlerts removes alerts older than cutoff time
 func (as *AlertStore) cleanupOldAlerts(cutoffTime time.Time) {
-	cutoffKey := roundToMinute(cutoffTime).Unix()
+	cutoffKey := models.RoundToMinute(cutoffTime).Unix()
 
 	// Remove old time slots
 	for timeKey := range as.alertsByTime {
@@ -295,15 +247,15 @@ func (as *AlertStore) cleanupOldAlerts(cutoffTime time.Time) {
 }
 
 // GetAlertsForCurrentMinute returns all alerts scheduled for the current minute
-func (as *AlertStore) GetAlertsForCurrentMinute(notifyUnaccepted bool) []*ScheduledAlert {
+func (as *AlertStore) GetAlertsForCurrentMinute(notifyUnaccepted bool) []*models.ScheduledAlert {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
 	now := time.Now()
-	timeKey := roundToMinute(now).Unix()
+	timeKey := models.RoundToMinute(now).Unix()
 
 	alerts := as.alertsByTime[timeKey]
-	result := make([]*ScheduledAlert, 0)
+	result := make([]*models.ScheduledAlert, 0)
 
 	for _, alert := range alerts {
 		// Skip if pending and event is unaccepted
@@ -314,8 +266,8 @@ func (as *AlertStore) GetAlertsForCurrentMinute(notifyUnaccepted bool) []*Schedu
 			}
 		}
 
-		// Only return pending or snoozed alerts (snoozed alerts are already moved to correct time slot)
-		if alert.Status == AlertStatusPending || alert.Status == AlertStatusSnoozed {
+		// Only return pending or snoozed alerts
+		if alert.Status == models.AlertStatusPending || alert.Status == models.AlertStatusSnoozed {
 			result = append(result, alert)
 		}
 	}
@@ -324,15 +276,15 @@ func (as *AlertStore) GetAlertsForCurrentMinute(notifyUnaccepted bool) []*Schedu
 }
 
 // MarkAlertStatus updates the status of an alert
-func (as *AlertStore) MarkAlertStatus(eventID string, alertOffset int, status AlertStatus, snoozedUntil *time.Time) {
+func (as *AlertStore) MarkAlertStatus(eventID string, alertOffset int, status models.AlertStatus, snoozedUntil *time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	alertID := generateAlertID(eventID, alertOffset)
 	if alert, exists := as.alertsById[alertID]; exists {
 		// If snoozed, mark original as snoozed and create a new alert with positive offset
-		if status == AlertStatusSnoozed && snoozedUntil != nil {
-			alert.Status = AlertStatusSnoozed
+		if status == models.AlertStatusSnoozed && snoozedUntil != nil {
+			alert.Status = models.AlertStatusSnoozed
 
 			// Calculate snooze minutes from now
 			snoozeMinutes := int(snoozedUntil.Sub(time.Now()).Minutes())
@@ -341,10 +293,10 @@ func (as *AlertStore) MarkAlertStatus(eventID string, alertOffset int, status Al
 			}
 
 			// Create new snoozed alert with positive offset
-			newAlert := &ScheduledAlert{
+			newAlert := &models.ScheduledAlert{
 				ID:          uuid.New().String(),
 				EventID:     alert.EventID,
-				Status:      AlertStatusPending,
+				Status:      models.AlertStatusPending,
 				AlertTime:   *snoozedUntil,
 				AlertOffset: snoozeMinutes, // Positive for snoozed alerts
 			}
@@ -353,7 +305,7 @@ func (as *AlertStore) MarkAlertStatus(eventID string, alertOffset int, status Al
 			as.alertsById[newAlertID] = newAlert
 
 			// Add to time-based index
-			timeKey := roundToMinute(*snoozedUntil).Unix()
+			timeKey := models.RoundToMinute(*snoozedUntil).Unix()
 			as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], newAlert)
 		} else {
 			// Just update status for non-snooze cases
@@ -362,12 +314,13 @@ func (as *AlertStore) MarkAlertStatus(eventID string, alertOffset int, status Al
 	}
 }
 
-func (as *AlertStore) GetAllScheduledAlerts() []*ScheduledAlert {
+// GetAllScheduledAlerts returns all scheduled alerts sorted by time
+func (as *AlertStore) GetAllScheduledAlerts() []*models.ScheduledAlert {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
 	now := time.Now()
-	result := make([]*ScheduledAlert, 0, len(as.alertsById))
+	result := make([]*models.ScheduledAlert, 0, len(as.alertsById))
 
 	for _, alert := range as.alertsById {
 		// Include future alerts and recent past alerts (within 12 hours)
@@ -384,7 +337,7 @@ func (as *AlertStore) GetAllScheduledAlerts() []*ScheduledAlert {
 }
 
 // GetEvent returns an event by ID
-func (as *AlertStore) GetEvent(eventID string) *Event {
+func (as *AlertStore) GetEvent(eventID string) *models.Event {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
@@ -392,7 +345,7 @@ func (as *AlertStore) GetEvent(eventID string) *Event {
 }
 
 // AddManualAlert adds a manual event and its alert to the store
-func (as *AlertStore) AddManualAlert(event *Event, alertTime time.Time) {
+func (as *AlertStore) AddManualAlert(event *models.Event, alertTime time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
@@ -400,10 +353,10 @@ func (as *AlertStore) AddManualAlert(event *Event, alertTime time.Time) {
 	as.events[event.ID] = event
 
 	// Create the alert
-	alert := &ScheduledAlert{
+	alert := &models.ScheduledAlert{
 		ID:          uuid.New().String(),
 		EventID:     event.ID,
-		Status:      AlertStatusPending,
+		Status:      models.AlertStatusPending,
 		AlertTime:   alertTime,
 		AlertOffset: 0, // Manual alarms have 0 offset
 	}
@@ -412,29 +365,29 @@ func (as *AlertStore) AddManualAlert(event *Event, alertTime time.Time) {
 	as.alertsById[alertID] = alert
 
 	// Add to time-based index
-	timeKey := roundToMinute(alertTime).Unix()
+	timeKey := models.RoundToMinute(alertTime).Unix()
 	as.alertsByTime[timeKey] = append(as.alertsByTime[timeKey], alert)
 }
 
 // UpdateMutedStatusForQuietTime checks all alerts and updates their muted status based on quiet time ranges
-func (as *AlertStore) UpdateMutedStatusForQuietTime(config *Config) {
+func (as *AlertStore) UpdateMutedStatusForQuietTime(config *models.Config) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	for _, alert := range as.alertsById {
 		// Only update alerts that are currently Pending or Muted
-		if alert.Status != AlertStatusPending && alert.Status != AlertStatusMuted {
+		if alert.Status != models.AlertStatusPending && alert.Status != models.AlertStatusMuted {
 			continue
 		}
 
 		isInQuietTime := config.IsTimeInQuietTime(alert.AlertTime)
 
-		if isInQuietTime && alert.Status == AlertStatusPending {
+		if isInQuietTime && alert.Status == models.AlertStatusPending {
 			// Mark as muted
-			alert.Status = AlertStatusMuted
-		} else if !isInQuietTime && alert.Status == AlertStatusMuted {
+			alert.Status = models.AlertStatusMuted
+		} else if !isInQuietTime && alert.Status == models.AlertStatusMuted {
 			// Unmute - return to pending
-			alert.Status = AlertStatusPending
+			alert.Status = models.AlertStatusPending
 		}
 	}
 }

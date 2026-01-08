@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package platform
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -14,9 +14,10 @@ SetActivationPolicy(void) {
 }
 */
 import "C"
-import "fmt"
+import "log"
 
-func setActivationPolicy() {
-	fmt.Println("Setting ActivationPolicy")
+// SetActivationPolicy sets the application activation policy (macOS only)
+func SetActivationPolicy() {
+	log.Println("Setting ActivationPolicy")
 	C.SetActivationPolicy()
 }
