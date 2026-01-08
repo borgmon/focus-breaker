@@ -86,13 +86,45 @@ func fetchAndParseICal(icalURL string) ([]models.Event, error) {
 			}
 			stats.totalEvents++
 
+			// Normalize Windows timezones to IANA timezones before parsing
+			normalizeComponentTimezones(comp)
+
 			event := parseEvent(comp)
 
-			// Check if this is a recurring event
+			// Check if this is a recurring event using go-ical's RecurrenceSet
 			if rruleProp := comp.Props.Get(ical.PropRecurrenceRule); rruleProp != nil {
 				log.Printf("  [RECURRING] Event: \"%s\" has RRULE: %s", event.Title, rruleProp.Value)
-				recurringEvents := expandRecurringEvent(event, rruleProp.Value, now, tomorrow)
-				for _, recEvent := range recurringEvents {
+
+				// Use go-ical's built-in RecurrenceSet which handles RRULE, EXDATE, RDATE properly
+				// Get the timezone from the component
+				loc := getTimezoneFromComponent(comp)
+
+				recurrenceSet, err := comp.RecurrenceSet(loc)
+				if err != nil {
+					log.Printf("  [RECURRING] Error parsing recurrence set for \"%s\": %v", event.Title, err)
+					// Fall back to treating as single event
+					if shouldIncludeEvent(event, now, tomorrow, stats) {
+						if !isDuplicate(event, seenEventIDs, seenEventKeys, stats) {
+							events = append(events, event)
+						}
+					}
+					continue
+				}
+
+				// Generate occurrences between now and tomorrow
+				duration := event.EndTime.Sub(event.StartTime)
+				occurrences := recurrenceSet.Between(now.Add(-24*time.Hour), tomorrow, true)
+
+				log.Printf("  [RECURRING] Generated %d occurrence(s) for \"%s\"", len(occurrences), event.Title)
+
+				for _, occurrence := range occurrences {
+					recEvent := event
+					recEvent.StartTime = occurrence
+					recEvent.EndTime = occurrence.Add(duration)
+					recEvent.ID = event.ID + "-" + occurrence.Format(time.RFC3339)
+
+					log.Printf("  [RECURRING] Instance at %s", occurrence.Format("2006-01-02 15:04"))
+
 					if shouldIncludeEvent(recEvent, now, tomorrow, stats) {
 						if !isDuplicate(recEvent, seenEventIDs, seenEventKeys, stats) {
 							events = append(events, recEvent)
@@ -160,13 +192,13 @@ func isDuplicate(event models.Event, seenEventIDs, seenEventKeys map[string]bool
 }
 
 type filterStats struct {
-	totalComponents      int
-	totalEvents          int
-	filteredMissingTime  int
-	filteredCancelled    int
-	filteredAllDay       int
+	totalComponents       int
+	totalEvents           int
+	filteredMissingTime   int
+	filteredCancelled     int
+	filteredAllDay        int
 	filteredOutsideWindow int
-	filteredDuplicates   int
+	filteredDuplicates    int
 }
 
 func (s *filterStats) logSummary(includedCount int) {

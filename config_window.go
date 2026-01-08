@@ -44,10 +44,22 @@ type ConfigWindow struct {
 	selectedScheduleRow int
 	alertStore          *store.AlertStore
 
+	// Events tab
+	eventsTable     *widget.Table
+	eventsData      []eventDisplayInfo
+	eventsContainer *fyne.Container
+
 	// UI state
 	hasUnsavedChanges bool
 	saveStatusLabel   *widget.Label
 	saveButton        *widget.Button
+}
+
+// eventDisplayInfo holds display information for an event
+type eventDisplayInfo struct {
+	event       *models.Event
+	alertStatus string // "Alerted", "Filtered", "Pending"
+	reason      string // Reason for the status
 }
 
 func NewConfigWindow(app fyne.App, config *models.Config, alertStore *store.AlertStore, onSave func(*models.Config)) *ConfigWindow {
@@ -70,6 +82,7 @@ func (cw *ConfigWindow) buildUI() {
 		container.NewTabItem("Calendar", cw.buildCalendarTab()),
 		container.NewTabItem("Alert", cw.buildAlertTab()),
 		container.NewTabItem("Schedules", cw.buildSchedulesTab()),
+		container.NewTabItem("Events", cw.buildEventsTab()),
 	)
 
 	// Save status label
