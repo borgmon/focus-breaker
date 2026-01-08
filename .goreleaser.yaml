@@ -9,26 +9,20 @@ builds:
     main: ./main.go
     binary: focus-breaker
 
-    # CGO is required for Fyne
     env:
       - CGO_ENABLED=1
 
-    # Use goos/goarch instead of targets for better control with overrides
     goos:
       - windows
       - linux
-      - darwin
 
     goarch:
       - amd64
       - arm64
 
-    # Ignore combinations we don't want
     ignore:
       - goos: windows
         goarch: arm64
-      - goos: darwin
-        goarch: amd64
 
     ldflags:
       - -s -w
@@ -38,9 +32,7 @@ builds:
 
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-    # Override settings for cross-compilation
     overrides:
-      # Linux ARM64 cross-compilation
       - goos: linux
         goarch: arm64
         env:
@@ -48,7 +40,6 @@ builds:
           - CXX=aarch64-linux-gnu-g++
           - CGO_ENABLED=1
 
-      # Windows AMD64 cross-compilation from Linux
       - goos: windows
         goarch: amd64
         env:
